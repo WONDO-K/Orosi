@@ -124,25 +124,30 @@ describe("CapacitorSqliteDatabaseFactory", () => {
     expect(manager.registered).toEqual(new Set());
   });
 
-  it("does not close a live connection when a concurrent open is rejected", async () => {
+  it("shares a live connection between concurrent leases until the final close", async () => {
     const manager = new RecordingManager();
     manager.pauseAfterNextRegistration();
     const factory = new CapacitorSqliteDatabaseFactory(manager);
 
     const firstOpening = factory.open("user-a");
     await manager.waitForPausedCreate();
+    const secondOpening = factory.open("user-a");
 
-    await expect(factory.open("user-a")).rejects.toThrow(
-      "Connection already registered",
-    );
+    manager.resumePausedCreate();
+    const [first, second] = await Promise.all([firstOpening, secondOpening]);
+
+    expect(manager.created).toEqual(["orosi_user-a"]);
+    expect(manager.registered).toEqual(new Set(["orosi_user-a"]));
+
+    await first.close();
+
     expect(manager.closed).toEqual([]);
     expect(manager.registered).toEqual(new Set(["orosi_user-a"]));
 
-    manager.resumePausedCreate();
-    const first = await firstOpening;
-    await first.close();
+    await second.close();
 
     expect(manager.closed).toEqual(["orosi_user-a"]);
+    expect(manager.registered).toEqual(new Set());
   });
 
   it("uses different database names and destroy targets for distinct valid owners", async () => {

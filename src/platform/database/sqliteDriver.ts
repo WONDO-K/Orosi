@@ -109,6 +109,42 @@ class CapacitorSqlDriver implements SqlDriver {
   }
 }
 
+class LeasedSqlDriver implements SqlDriver {
+  private closed = false;
+
+  constructor(
+    private readonly shared: SqlDriver,
+    private readonly release: () => Promise<void>,
+  ) {}
+
+  execute(statements: string): Promise<void> {
+    return this.shared.execute(statements);
+  }
+
+  run(statement: string, values?: unknown[]): Promise<number> {
+    return this.shared.run(statement, values);
+  }
+
+  query<T extends Record<string, unknown>>(
+    statement: string,
+    values?: unknown[],
+  ): Promise<T[]> {
+    return this.shared.query<T>(statement, values);
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    await this.release();
+  }
+}
+
+interface SharedConnection {
+  driver: SqlDriver;
+  leases: number;
+  closePromise?: Promise<void>;
+}
+
 function databaseName(ownerId: string): string {
   if (!/^[A-Za-z0-9-]{1,128}$/.test(ownerId)) {
     throw new Error("Invalid local account id");
@@ -123,12 +159,61 @@ function randomPassphrase(): string {
 }
 
 export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
+  private readonly connections = new Map<string, SharedConnection>();
+  private readonly pendingConnections = new Map<
+    string,
+    Promise<SharedConnection>
+  >();
+
   constructor(
     private readonly sqlite: SqliteConnectionManager = new CapacitorSqliteConnectionManager(),
   ) {}
 
   async open(ownerId: string): Promise<SqliteNoteRepository> {
     const name = databaseName(ownerId);
+    const shared = await this.acquireConnection(name);
+    shared.leases += 1;
+    return new SqliteNoteRepository(
+      ownerId,
+      new LeasedSqlDriver(shared.driver, () =>
+        this.releaseConnection(name, shared),
+      ),
+    );
+  }
+
+  async destroy(ownerId: string): Promise<void> {
+    const name = databaseName(ownerId);
+    this.connections.delete(name);
+    const isOpen =
+      (await this.sqlite.isConnection(name, false)).result === true;
+    if (isOpen) await this.sqlite.closeConnection(name, false);
+    const exists = (await this.sqlite.isDatabase(name)).result === true;
+    if (exists) await this.sqlite.deleteDatabase(name);
+  }
+
+  private async acquireConnection(name: string): Promise<SharedConnection> {
+    const existing = this.connections.get(name);
+    if (existing) {
+      if (existing.closePromise) {
+        await existing.closePromise;
+        return this.acquireConnection(name);
+      }
+      return existing;
+    }
+
+    const pending = this.pendingConnections.get(name);
+    if (pending) return pending;
+
+    const opening = this.createConnection(name);
+    this.pendingConnections.set(name, opening);
+    void opening.then(
+      () => this.pendingConnections.delete(name),
+      () => this.pendingConnections.delete(name),
+    );
+    return opening;
+  }
+
+  private async createConnection(name: string): Promise<SharedConnection> {
     const exists = (await this.sqlite.isDatabase(name)).result === true;
     const hasSecret = (await this.sqlite.isSecretStored()).result === true;
     if (exists && !hasSecret) {
@@ -151,19 +236,31 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
       await connection.open();
       const driver = new CapacitorSqlDriver(connection, this.sqlite, name);
       await driver.execute(migration001);
-      return new SqliteNoteRepository(ownerId, driver);
+      const shared = { driver, leases: 0 };
+      this.connections.set(name, shared);
+      return shared;
     } catch (error) {
       if (ownsConnection) await this.sqlite.closeConnection(name, false);
       throw error;
     }
   }
 
-  async destroy(ownerId: string): Promise<void> {
-    const name = databaseName(ownerId);
-    const isOpen =
-      (await this.sqlite.isConnection(name, false)).result === true;
-    if (isOpen) await this.sqlite.closeConnection(name, false);
-    const exists = (await this.sqlite.isDatabase(name)).result === true;
-    if (exists) await this.sqlite.deleteDatabase(name);
+  private async releaseConnection(
+    name: string,
+    shared: SharedConnection,
+  ): Promise<void> {
+    if (this.connections.get(name) !== shared || shared.leases === 0) return;
+
+    shared.leases -= 1;
+    if (shared.leases > 0) return;
+
+    shared.closePromise = shared.driver.close();
+    try {
+      await shared.closePromise;
+    } finally {
+      if (this.connections.get(name) === shared) {
+        this.connections.delete(name);
+      }
+    }
   }
 }
