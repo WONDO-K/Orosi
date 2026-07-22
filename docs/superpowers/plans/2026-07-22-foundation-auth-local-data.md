@@ -166,7 +166,7 @@ Create `package.json` with this complete content:
   },
   "devDependencies": {
     "@capacitor/cli": "8.4.2",
-    "@eslint/js": "10.7.0",
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.61.1",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
