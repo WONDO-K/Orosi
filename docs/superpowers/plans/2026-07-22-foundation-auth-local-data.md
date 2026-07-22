@@ -573,7 +573,11 @@ export const EMPTY_DOCUMENT: NoteDocument = {
   content: [{ type: 'paragraph' }],
 }
 
-export function createPrivateNote(ownerId: string, now: string, id = crypto.randomUUID()): PrivateNote {
+export function createPrivateNote(
+  ownerId: string,
+  now: string,
+  id: string = crypto.randomUUID(),
+): PrivateNote {
   if (!ownerId) throw new Error('A private note requires an owner')
 
   return {
