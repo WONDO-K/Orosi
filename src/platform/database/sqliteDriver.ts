@@ -17,8 +17,75 @@ export interface SqlDriver {
   close(): Promise<void>;
 }
 
+export interface SqliteConnectionManager {
+  isDatabase(database: string): Promise<{ result?: boolean }>;
+  isSecretStored(): Promise<{ result?: boolean }>;
+  setEncryptionSecret(passphrase: string): Promise<void>;
+  createConnection(
+    database: string,
+    encrypted: boolean,
+    mode: string,
+    version: number,
+    readonly: boolean,
+  ): Promise<SQLiteDBConnection>;
+  isConnection(
+    database: string,
+    readonly: boolean,
+  ): Promise<{ result?: boolean }>;
+  closeConnection(database: string, readonly: boolean): Promise<void>;
+  deleteDatabase(database: string): Promise<void>;
+}
+
+class CapacitorSqliteConnectionManager implements SqliteConnectionManager {
+  private readonly sqlite = new SQLiteConnection(CapacitorSQLite);
+
+  isDatabase(database: string) {
+    return this.sqlite.isDatabase(database);
+  }
+
+  isSecretStored() {
+    return this.sqlite.isSecretStored();
+  }
+
+  setEncryptionSecret(passphrase: string) {
+    return this.sqlite.setEncryptionSecret(passphrase);
+  }
+
+  createConnection(
+    database: string,
+    encrypted: boolean,
+    mode: string,
+    version: number,
+    readonly: boolean,
+  ) {
+    return this.sqlite.createConnection(
+      database,
+      encrypted,
+      mode,
+      version,
+      readonly,
+    );
+  }
+
+  isConnection(database: string, readonly: boolean) {
+    return this.sqlite.isConnection(database, readonly);
+  }
+
+  closeConnection(database: string, readonly: boolean) {
+    return this.sqlite.closeConnection(database, readonly);
+  }
+
+  deleteDatabase(database: string) {
+    return CapacitorSQLite.deleteDatabase({ database, readonly: false });
+  }
+}
+
 class CapacitorSqlDriver implements SqlDriver {
-  constructor(private readonly connection: SQLiteDBConnection) {}
+  constructor(
+    private readonly connection: SQLiteDBConnection,
+    private readonly manager: SqliteConnectionManager,
+    private readonly database: string,
+  ) {}
 
   async execute(statements: string): Promise<void> {
     await this.connection.execute(statements, true);
@@ -38,7 +105,7 @@ class CapacitorSqlDriver implements SqlDriver {
   }
 
   async close(): Promise<void> {
-    await this.connection.close();
+    await this.manager.closeConnection(this.database, false);
   }
 }
 
@@ -46,7 +113,7 @@ function databaseName(ownerId: string): string {
   if (!/^[A-Za-z0-9-]{1,128}$/.test(ownerId)) {
     throw new Error("Invalid local account id");
   }
-  return `orosi_${ownerId.replaceAll("-", "")}`;
+  return `orosi_${ownerId}`;
 }
 
 function randomPassphrase(): string {
@@ -56,7 +123,9 @@ function randomPassphrase(): string {
 }
 
 export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
-  private readonly sqlite = new SQLiteConnection(CapacitorSQLite);
+  constructor(
+    private readonly sqlite: SqliteConnectionManager = new CapacitorSqliteConnectionManager(),
+  ) {}
 
   async open(ownerId: string): Promise<SqliteNoteRepository> {
     const name = databaseName(ownerId);
@@ -69,17 +138,22 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
     }
     if (!hasSecret) await this.sqlite.setEncryptionSecret(randomPassphrase());
 
-    const connection = await this.sqlite.createConnection(
-      name,
-      true,
-      "secret",
-      1,
-      false,
-    );
-    await connection.open();
-    const driver = new CapacitorSqlDriver(connection);
-    await driver.execute(migration001);
-    return new SqliteNoteRepository(ownerId, driver);
+    try {
+      const connection = await this.sqlite.createConnection(
+        name,
+        true,
+        "secret",
+        1,
+        false,
+      );
+      await connection.open();
+      const driver = new CapacitorSqlDriver(connection, this.sqlite, name);
+      await driver.execute(migration001);
+      return new SqliteNoteRepository(ownerId, driver);
+    } catch (error) {
+      await this.closeRegisteredConnection(name);
+      throw error;
+    }
   }
 
   async destroy(ownerId: string): Promise<void> {
@@ -88,8 +162,12 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
       (await this.sqlite.isConnection(name, false)).result === true;
     if (isOpen) await this.sqlite.closeConnection(name, false);
     const exists = (await this.sqlite.isDatabase(name)).result === true;
-    if (exists) {
-      await CapacitorSQLite.deleteDatabase({ database: name, readonly: false });
+    if (exists) await this.sqlite.deleteDatabase(name);
+  }
+
+  private async closeRegisteredConnection(name: string): Promise<void> {
+    if ((await this.sqlite.isConnection(name, false)).result === true) {
+      await this.sqlite.closeConnection(name, false);
     }
   }
 }
