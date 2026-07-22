@@ -23,7 +23,10 @@ export async function attachOAuthCallback(
       if (
         callback.protocol === "orosi:" &&
         callback.hostname === "auth" &&
-        callback.pathname === "/callback"
+        callback.pathname === "/callback" &&
+        callback.port === "" &&
+        callback.username === "" &&
+        callback.password === ""
       ) {
         void dependencies.auth.completeOAuth(url);
       }

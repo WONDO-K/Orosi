@@ -64,6 +64,8 @@ describe("attachOAuthCallback", () => {
     expect(() => {
       capacitorApp.emit("orosi://auth/callback.evil?code=attacker-code");
       capacitorApp.emit("orosi://auth/callback/extra?code=attacker-code");
+      capacitorApp.emit("orosi://auth:8443/callback?code=attacker-code");
+      capacitorApp.emit("orosi://user@auth/callback?code=attacker-code");
       capacitorApp.emit("not a valid URL");
     }).not.toThrow();
 
