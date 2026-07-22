@@ -138,6 +138,7 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
     }
     if (!hasSecret) await this.sqlite.setEncryptionSecret(randomPassphrase());
 
+    let ownsConnection = false;
     try {
       const connection = await this.sqlite.createConnection(
         name,
@@ -146,12 +147,13 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
         1,
         false,
       );
+      ownsConnection = true;
       await connection.open();
       const driver = new CapacitorSqlDriver(connection, this.sqlite, name);
       await driver.execute(migration001);
       return new SqliteNoteRepository(ownerId, driver);
     } catch (error) {
-      await this.closeRegisteredConnection(name);
+      if (ownsConnection) await this.sqlite.closeConnection(name, false);
       throw error;
     }
   }
@@ -163,11 +165,5 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
     if (isOpen) await this.sqlite.closeConnection(name, false);
     const exists = (await this.sqlite.isDatabase(name)).result === true;
     if (exists) await this.sqlite.deleteDatabase(name);
-  }
-
-  private async closeRegisteredConnection(name: string): Promise<void> {
-    if ((await this.sqlite.isConnection(name, false)).result === true) {
-      await this.sqlite.closeConnection(name, false);
-    }
   }
 }

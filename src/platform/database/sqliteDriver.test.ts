@@ -36,6 +36,12 @@ class RecordingManager implements SqliteConnectionManager {
   databaseExists = false;
   secretStored = true;
   nextOpenError?: Error;
+  private pauseNextCreate = false;
+  private resumeCreate?: () => void;
+  private createdPaused: () => void = () => undefined;
+  private readonly createPaused = new Promise<void>((resolve) => {
+    this.createdPaused = resolve;
+  });
 
   isDatabase(): Promise<{ result?: boolean }> {
     return Promise.resolve({ result: this.databaseExists });
@@ -49,15 +55,34 @@ class RecordingManager implements SqliteConnectionManager {
     return Promise.resolve();
   }
 
-  createConnection(database: string): Promise<SQLiteDBConnection> {
+  async createConnection(database: string): Promise<SQLiteDBConnection> {
     if (this.registered.has(database)) {
-      return Promise.reject(new Error("Connection already registered"));
+      throw new Error("Connection already registered");
     }
     this.created.push(database);
     this.registered.add(database);
+    if (this.pauseNextCreate) {
+      this.pauseNextCreate = false;
+      this.createdPaused();
+      await new Promise<void>((resolve) => {
+        this.resumeCreate = resolve;
+      });
+    }
     const connection = new RecordingConnection(this.nextOpenError);
     this.nextOpenError = undefined;
-    return Promise.resolve(connection as unknown as SQLiteDBConnection);
+    return connection as unknown as SQLiteDBConnection;
+  }
+
+  pauseAfterNextRegistration(): void {
+    this.pauseNextCreate = true;
+  }
+
+  waitForPausedCreate(): Promise<void> {
+    return this.createPaused;
+  }
+
+  resumePausedCreate(): void {
+    this.resumeCreate?.();
   }
 
   isConnection(database: string): Promise<{ result?: boolean }> {
@@ -97,6 +122,27 @@ describe("CapacitorSqliteDatabaseFactory", () => {
 
     expect(manager.closed).toEqual(["orosi_user-a"]);
     expect(manager.registered).toEqual(new Set());
+  });
+
+  it("does not close a live connection when a concurrent open is rejected", async () => {
+    const manager = new RecordingManager();
+    manager.pauseAfterNextRegistration();
+    const factory = new CapacitorSqliteDatabaseFactory(manager);
+
+    const firstOpening = factory.open("user-a");
+    await manager.waitForPausedCreate();
+
+    await expect(factory.open("user-a")).rejects.toThrow(
+      "Connection already registered",
+    );
+    expect(manager.closed).toEqual([]);
+    expect(manager.registered).toEqual(new Set(["orosi_user-a"]));
+
+    manager.resumePausedCreate();
+    const first = await firstOpening;
+    await first.close();
+
+    expect(manager.closed).toEqual(["orosi_user-a"]);
   });
 
   it("uses different database names and destroy targets for distinct valid owners", async () => {
