@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createPrivateNote, type PrivateNote } from "./note";
 import { NoteEditorScreen } from "./NoteEditorScreen";
@@ -56,6 +57,37 @@ describe("NoteEditorScreen persistence", () => {
       second.resolve();
       await Promise.resolve();
     });
+    expect(screen.getByRole("status")).toHaveTextContent("기록이 저장됨");
+  });
+
+  it("updates save feedback when mounted under StrictMode", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn(() => Promise.resolve());
+
+    render(
+      <StrictMode>
+        <NoteEditorScreen
+          note={createPrivateNote(
+            "user-a",
+            "2026-07-22T03:00:00.000Z",
+            "note-a",
+          )}
+          now={() => "2026-07-22T03:00:00.000Z"}
+          onSave={onSave}
+          onClose={() => undefined}
+        />
+      </StrictMode>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "노트 제목" }), {
+      target: { value: "엄격 모드" },
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("저장 중");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status")).toHaveTextContent("기록이 저장됨");
   });
 });

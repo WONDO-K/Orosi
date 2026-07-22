@@ -81,13 +81,13 @@ export function NoteEditorScreen({
     return saveChain.current;
   }
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function close() {
     if (await persist()) onClose();
