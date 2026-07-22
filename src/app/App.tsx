@@ -1,6 +1,7 @@
 import { useState } from "react";
-import type { AppDependencies } from "./dependencies";
 import { AuthGate } from "@/features/auth/AuthGate";
+import { NotesScreen } from "@/features/notes/NotesScreen";
+import type { AppDependencies } from "./dependencies";
 
 type Tab = "notes" | "settings";
 
@@ -9,7 +10,7 @@ export function App({ dependencies }: { dependencies: AppDependencies }) {
 
   async function logout(userId: string) {
     const confirmed = window.confirm(
-      "?숆린?붾릺吏 ?딆? ?명듃????湲곌린?먯꽌 ??젣?????덉뼱?? 濡쒓렇?꾩썐?좉퉴??",
+      "동기화되지 않은 노트는 이 기기에서만 저장되어 있어요. 로그아웃할까요?",
     );
     if (!confirmed) return;
     await dependencies.auth.signOut();
@@ -25,35 +26,37 @@ export function App({ dependencies }: { dependencies: AppDependencies }) {
           </header>
           <section className="screen-content">
             {tab === "notes" ? (
-              <div>
-                <h1>???명듃</h1>
-                <p>?섎쭔???붽린 ?ъ씤?몃? 湲곕줉??蹂댁꽭??</p>
-              </div>
+              <NotesScreen
+                ownerId={session.userId}
+                databases={dependencies.databases}
+                now={() => dependencies.now()}
+                newId={() => dependencies.newId()}
+              />
             ) : (
               <div>
-                <h1>?ㅼ젙</h1>
-                <p>{session.email ?? "濡쒓렇?몃맂 怨꾩젙"}</p>
+                <h1>설정</h1>
+                <p>{session.email ?? "로그인된 계정"}</p>
                 <button onClick={() => void logout(session.userId)}>
-                  ??湲곌린?먯꽌 濡쒓렇?꾩썐
+                  이 기기에서 로그아웃
                 </button>
               </div>
             )}
           </section>
-          <nav className="bottom-nav" aria-label="二쇱슂 硫붾돱">
+          <nav className="bottom-nav" aria-label="주요 메뉴">
             <button
               aria-current={tab === "notes" ? "page" : undefined}
               onClick={() => setTab("notes")}
             >
-              ???명듃
+              내 노트
             </button>
             <button aria-disabled="true" disabled>
-              ?섎윭蹂닿린
+              둘러보기
             </button>
             <button
               aria-current={tab === "settings" ? "page" : undefined}
               onClick={() => setTab("settings")}
             >
-              ?ㅼ젙
+              설정
             </button>
           </nav>
         </main>

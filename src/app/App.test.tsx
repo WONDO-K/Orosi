@@ -28,14 +28,14 @@ describe("protected Orosi shell", () => {
     );
 
     expect(
-      await screen.findByRole("navigation", { name: "二쇱슂 硫붾돱" }),
+      await screen.findByRole("navigation", { name: "주요 메뉴" }),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "???명듃" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "?섎윭蹂닿린" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "내 노트" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "둘러보기" })).toHaveAttribute(
       "aria-disabled",
       "true",
     );
-    expect(screen.getByRole("button", { name: "?ㅼ젙" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "설정" })).toBeVisible();
   });
 
   it("warns before logout and clears the account partition after confirmation", async () => {
@@ -65,10 +65,10 @@ describe("protected Orosi shell", () => {
         }}
       />,
     );
-    await user.click(await screen.findByRole("button", { name: "?ㅼ젙" }));
+    await user.click(await screen.findByRole("button", { name: "설정" }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(
-      screen.getByRole("button", { name: "??湲곌린?먯꽌 濡쒓렇?꾩썐" }),
+      screen.getByRole("button", { name: "이 기기에서 로그아웃" }),
     );
 
     await waitFor(() => expect(auth.signOutCalls).toBe(1));
