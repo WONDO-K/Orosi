@@ -1,1 +1,16 @@
+.env
+.env.local
+.idea/
+.vscode/
 .worktrees/
+coverage/
+dist/
+node_modules/
+playwright-report/
+test-results/
+android/.gradle/
+android/local.properties
+android/**/build/
+ios/App/DerivedData/
+ios/App/Pods/
+*.xcuserstate

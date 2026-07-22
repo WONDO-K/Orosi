@@ -1,0 +1,9 @@
+.superpowers
+android
+coverage
+dist
+docs/superpowers
+ios
+package-lock.json
+playwright-report
+test-results
