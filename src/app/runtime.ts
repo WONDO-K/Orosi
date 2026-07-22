@@ -2,12 +2,15 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { createSupabaseAuthRepository } from "@/features/auth/supabaseAuth";
 import { IndexedDbDatabaseFactory } from "@/platform/database/indexedDbNotes";
+import { CapacitorSqliteDatabaseFactory } from "@/platform/database/sqliteDriver";
 import type { AppDependencies, PlatformKind } from "./dependencies";
 
 export function createRuntimeDependencies(): AppDependencies {
   return {
     auth: createSupabaseAuthRepository(import.meta.env),
-    databases: new IndexedDbDatabaseFactory(),
+    databases: Capacitor.isNativePlatform()
+      ? new CapacitorSqliteDatabaseFactory()
+      : new IndexedDbDatabaseFactory(),
     platform: Capacitor.getPlatform() as PlatformKind,
     now: () => new Date().toISOString(),
     newId: () => crypto.randomUUID(),
