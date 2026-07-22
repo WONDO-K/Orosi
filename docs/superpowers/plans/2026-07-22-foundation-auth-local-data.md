@@ -1710,36 +1710,48 @@ import type { LocalDatabaseFactory } from '@/platform/database/databaseFactory'
 class MemoryNoteRepository implements PrivateNoteRepository {
   constructor(readonly ownerId: string, private readonly notes: Map<string, PrivateNote>) {}
 
-  async list(location: NoteList, query = '') {
+  list(location: NoteList, query = '') {
     const normalized = query.trim().toLocaleLowerCase('ko-KR')
-    return [...this.notes.values()]
-      .filter((note) => location === 'trash' ? note.deletedAt !== null : note.deletedAt === null)
-      .filter((note) => !normalized || [note.title, note.derivedText, ...note.tags]
-        .join(' ').toLocaleLowerCase('ko-KR').includes(normalized))
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .map((note) => structuredClone(note))
+    return Promise.resolve(
+      [...this.notes.values()]
+        .filter((note) => location === 'trash' ? note.deletedAt !== null : note.deletedAt === null)
+        .filter((note) => !normalized || [note.title, note.derivedText, ...note.tags]
+          .join(' ').toLocaleLowerCase('ko-KR').includes(normalized))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map((note) => structuredClone(note)),
+    )
   }
-  async get(id: string) { return structuredClone(this.notes.get(id) ?? null) }
-  async put(note: PrivateNote) { assertOwned(this, note); this.notes.set(note.id, structuredClone(note)) }
-  async deletePermanently(id: string) { this.notes.delete(id) }
-  async purgeExpired(now: string) {
+  get(id: string) { return Promise.resolve(structuredClone(this.notes.get(id) ?? null)) }
+  put(note: PrivateNote) {
+    assertOwned(this, note)
+    this.notes.set(note.id, structuredClone(note))
+    return Promise.resolve()
+  }
+  deletePermanently(id: string) {
+    this.notes.delete(id)
+    return Promise.resolve()
+  }
+  purgeExpired(now: string) {
     const expired = [...this.notes.values()].filter((note) => note.purgeAfter && note.purgeAfter <= now)
     expired.forEach((note) => this.notes.delete(note.id))
-    return expired.length
+    return Promise.resolve(expired.length)
   }
-  async close() {}
+  close() { return Promise.resolve() }
 }
 
 export class MemoryDatabaseFactory implements LocalDatabaseFactory {
   private readonly accounts = new Map<string, Map<string, PrivateNote>>()
 
-  async open(ownerId: string): Promise<PrivateNoteRepository> {
+  open(ownerId: string): Promise<PrivateNoteRepository> {
     const notes = this.accounts.get(ownerId) ?? new Map<string, PrivateNote>()
     this.accounts.set(ownerId, notes)
-    return new MemoryNoteRepository(ownerId, notes)
+    return Promise.resolve(new MemoryNoteRepository(ownerId, notes))
   }
 
-  async destroy(ownerId: string) { this.accounts.delete(ownerId) }
+  destroy(ownerId: string) {
+    this.accounts.delete(ownerId)
+    return Promise.resolve()
+  }
 }
 ```
 
