@@ -308,6 +308,7 @@ Create `.gitignore`:
 .env.local
 .idea/
 .vscode/
+.worktrees/
 coverage/
 dist/
 node_modules/
