@@ -2275,16 +2275,16 @@ class RecordingDriver implements SqlDriver {
   readonly calls: Array<{ statement: string; values: unknown[] }> = []
   rows: Record<string, unknown>[] = []
   changes = 0
-  async execute() {}
-  async run(statement: string, values: unknown[] = []) {
+  execute() { return Promise.resolve() }
+  run(statement: string, values: unknown[] = []) {
     this.calls.push({ statement, values })
-    return this.changes
+    return Promise.resolve(this.changes)
   }
-  async query<T extends Record<string, unknown>>(statement: string, values: unknown[] = []) {
+  query<T extends Record<string, unknown>>(statement: string, values: unknown[] = []) {
     this.calls.push({ statement, values })
-    return this.rows as T[]
+    return Promise.resolve(this.rows as T[])
   }
-  async close() {}
+  close() { return Promise.resolve() }
 }
 
 describe('SqliteNoteRepository', () => {
