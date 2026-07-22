@@ -954,16 +954,19 @@ import { SupabaseAuthRepository } from './supabaseAuth'
 
 class MemorySecureStore implements SecureKeyValueStore {
   private readonly values = new Map<string, string>()
-  async getItem(key: string) { return this.values.get(key) ?? null }
-  async setItem(key: string, value: string) { this.values.set(key, value) }
-  async removeItem(key: string) { this.values.delete(key) }
-  async clearNamespace() { this.values.clear() }
+  getItem(key: string) { return Promise.resolve(this.values.get(key) ?? null) }
+  setItem(key: string, value: string) { this.values.set(key, value); return Promise.resolve() }
+  removeItem(key: string) { this.values.delete(key); return Promise.resolve() }
+  clearNamespace() { this.values.clear(); return Promise.resolve() }
 }
 
 function dependencies(connected: boolean) {
   const secure = new MemorySecureStore()
-  const network: NetworkPort = { isConnected: async () => connected }
-  const browser: OAuthBrowserPort = { open: vi.fn(async () => undefined), close: vi.fn(async () => undefined) }
+  const network: NetworkPort = { isConnected: () => Promise.resolve(connected) }
+  const browser: OAuthBrowserPort = {
+    open: vi.fn(() => Promise.resolve()),
+    close: vi.fn(() => Promise.resolve()),
+  }
   return { secure, network, browser }
 }
 
@@ -975,7 +978,11 @@ describe('SupabaseAuthRepository', () => {
       JSON.stringify({ userId: 'user-a', email: 'a@example.com', lastValidatedAt: '2026-07-22T03:00:00.000Z' }),
     )
     const client = {
-      auth: { getSession: vi.fn(async () => ({ data: { session: null }, error: new Error('offline') })) },
+      auth: {
+        getSession: vi.fn(() =>
+          Promise.resolve({ data: { session: null }, error: new Error('offline') }),
+        ),
+      },
     } as unknown as SupabaseClient
 
     const repository = new SupabaseAuthRepository(client, secure, network, browser, 'orosi://auth/callback')
@@ -997,7 +1004,7 @@ describe('SupabaseAuthRepository', () => {
     )
     const error = Object.assign(new Error('invalid refresh token'), { status: 401 })
     const client = {
-      auth: { getSession: vi.fn(async () => ({ data: { session: null }, error })) },
+      auth: { getSession: vi.fn(() => Promise.resolve({ data: { session: null }, error })) },
     } as unknown as SupabaseClient
     const repository = new SupabaseAuthRepository(client, secure, network, browser, 'orosi://auth/callback')
 
@@ -1193,8 +1200,8 @@ export function createSupabaseAuthRepository(environment: Record<string, unknown
     isConnected: async () => (await Network.getStatus()).connected,
   }
   const browser: OAuthBrowserPort = {
-    open: async (url) => Browser.open({ url }),
-    close: async () => Browser.close(),
+    open: (url) => Browser.open({ url }),
+    close: () => Browser.close(),
   }
   return new SupabaseAuthRepository(client, secure, network, browser, config.VITE_AUTH_REDIRECT_URL)
 }
