@@ -1278,10 +1278,17 @@ export class FakeAuthRepository implements AuthRepository {
   constructor(private snapshot: AuthSnapshot) {}
 
   current() { return this.snapshot }
-  async bootstrap() { return this.snapshot }
-  async signIn(provider: OAuthProvider) { this.signInCalls.push(provider) }
-  async completeOAuth() { return this.snapshot }
-  async signOut() { this.signOutCalls += 1; this.emit({ status: 'signedOut', reason: 'first-login-online' }) }
+  bootstrap() { return Promise.resolve(this.snapshot) }
+  signIn(provider: OAuthProvider) {
+    this.signInCalls.push(provider)
+    return Promise.resolve()
+  }
+  completeOAuth() { return Promise.resolve(this.snapshot) }
+  signOut() {
+    this.signOutCalls += 1
+    this.emit({ status: 'signedOut', reason: 'first-login-online' })
+    return Promise.resolve()
+  }
   subscribe(listener: (snapshot: AuthSnapshot) => void) {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
