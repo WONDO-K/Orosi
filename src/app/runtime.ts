@@ -18,8 +18,18 @@ export async function attachOAuthCallback(
   dependencies: AppDependencies,
 ): Promise<() => Promise<void>> {
   const handle = await CapacitorApp.addListener("appUrlOpen", ({ url }) => {
-    if (url.startsWith("orosi://auth/callback"))
-      void dependencies.auth.completeOAuth(url);
+    try {
+      const callback = new URL(url);
+      if (
+        callback.protocol === "orosi:" &&
+        callback.hostname === "auth" &&
+        callback.pathname === "/callback"
+      ) {
+        void dependencies.auth.completeOAuth(url);
+      }
+    } catch {
+      // Ignore malformed deep links.
+    }
   });
   return () => handle.remove();
 }
