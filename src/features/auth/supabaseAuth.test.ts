@@ -80,6 +80,33 @@ describe("SupabaseAuthRepository", () => {
     });
   });
 
+  it("rejects an offline local session without a previously validated secure marker", async () => {
+    const { secure, network, browser } = dependencies(false);
+    const client = {
+      auth: {
+        getSession: () =>
+          Promise.resolve({
+            data: {
+              session: { user: { id: "user-a", email: "a@example.com" } },
+            },
+            error: null,
+          }),
+      },
+    } as unknown as SupabaseClient;
+    const repository = new SupabaseAuthRepository(
+      client,
+      secure,
+      network,
+      browser,
+      "orosi://auth/callback",
+    );
+
+    await expect(repository.bootstrap()).resolves.toEqual({
+      status: "signedOut",
+      reason: "first-login-online",
+    });
+  });
+
   it("clears the offline marker when the server definitively rejects the session", async () => {
     const { secure, network, browser } = dependencies(true);
     await secure.setItem(

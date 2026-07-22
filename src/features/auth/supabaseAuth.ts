@@ -104,6 +104,18 @@ export class SupabaseAuthRepository implements AuthRepository {
   async bootstrap(): Promise<AuthSnapshot> {
     const connected = await this.network.isConnected();
     const marker = await this.readMarker();
+
+    if (!connected) {
+      if (marker) {
+        return this.publish({ status: "signedIn", ...marker, offline: true });
+      }
+
+      return this.publish({
+        status: "signedOut",
+        reason: "first-login-online",
+      });
+    }
+
     const { data, error } = await this.client.auth.getSession();
 
     if (data.session) {
