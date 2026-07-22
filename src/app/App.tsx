@@ -27,6 +27,7 @@ export function App({ dependencies }: { dependencies: AppDependencies }) {
           <section className="screen-content">
             {tab === "notes" ? (
               <NotesScreen
+                key={session.userId}
                 ownerId={session.userId}
                 databases={dependencies.databases}
                 now={() => dependencies.now()}

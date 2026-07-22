@@ -21,6 +21,7 @@ export function NoteEditorScreen({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveChain = useRef<Promise<boolean>>(Promise.resolve(true));
   const saveAttempt = useRef(0);
+  const draftVersion = useRef(0);
   const mounted = useRef(true);
   const latest = useRef<{ title: string; document: NoteDocument }>({
     title: note.title,
@@ -43,6 +44,7 @@ export function NoteEditorScreen({
     editorProps: { attributes: { "aria-label": "노트 내용", role: "textbox" } },
     onUpdate: ({ editor: current }) => {
       latest.current.document = current.getJSON() as NoteDocument;
+      draftVersion.current += 1;
       scheduleSave();
     },
   });
@@ -52,14 +54,27 @@ export function NoteEditorScreen({
     timer.current = null;
     setCurrentSaveState("saving");
     const attempt = ++saveAttempt.current;
+    const version = draftVersion.current;
     const change = structuredClone(latest.current);
     saveChain.current = saveChain.current.then(async () => {
       try {
         await onSave(editPrivateNote(note, { ...change, now: now() }));
-        if (attempt === saveAttempt.current) setCurrentSaveState("saved");
+        if (
+          attempt === saveAttempt.current &&
+          version === draftVersion.current &&
+          timer.current === null
+        ) {
+          setCurrentSaveState("saved");
+        }
         return true;
       } catch {
-        if (attempt === saveAttempt.current) setCurrentSaveState("error");
+        if (
+          attempt === saveAttempt.current &&
+          version === draftVersion.current &&
+          timer.current === null
+        ) {
+          setCurrentSaveState("error");
+        }
         return false;
       }
     });
@@ -95,6 +110,7 @@ export function NoteEditorScreen({
         onChange={(event) => {
           setTitle(event.target.value);
           latest.current.title = event.target.value;
+          draftVersion.current += 1;
           scheduleSave();
         }}
       />
