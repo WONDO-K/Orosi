@@ -224,8 +224,7 @@ Create `tsconfig.json`:
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "vitest/globals"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "vite.config.ts", "capacitor.config.ts"]
 }
@@ -253,11 +252,12 @@ Create `eslint.config.js`:
 
 ```js
 import js from '@eslint/js'
+import { defineConfig } from 'eslint/config'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: [
       'android/**',
@@ -268,23 +268,23 @@ export default tseslint.config(
       'test-results/**',
     ],
   },
-  js.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+  {
+    files: ['**/*.{js,mjs,cjs}'],
+    extends: [js.configs.recommended],
+  },
   {
     files: ['**/*.{ts,tsx}'],
+    extends: [
+      js.configs.recommended,
+      ...tseslint.configs.recommendedTypeChecked,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
     languageOptions: {
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
-    },
-    plugins: {
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
-    },
-    rules: {
-      ...reactHooks.configs.flat.recommended.rules,
-      ...reactRefresh.configs.vite.rules,
     },
   },
 )
@@ -293,9 +293,11 @@ export default tseslint.config(
 Create `.prettierignore`:
 
 ```text
+.superpowers
 android
 coverage
 dist
+docs/superpowers
 ios
 package-lock.json
 playwright-report
@@ -437,6 +439,8 @@ createRoot(root).render(
 Run:
 
 ```powershell
+npm.cmd run format
+npm.cmd run format:check
 npm.cmd test -- src/app/App.test.tsx
 npm.cmd run typecheck
 npm.cmd run lint
