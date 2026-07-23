@@ -9,6 +9,8 @@ import {
 import type { NoteList, PrivateNoteRepository } from "./noteRepository";
 import { NoteEditorScreen } from "./NoteEditorScreen";
 import type { PrivateSyncService } from "@/features/sync/privateSync";
+import { createPublicSnapshot } from "@/features/publication/publication";
+import type { PublicDiscovery } from "@/features/publication/supabasePublications";
 
 export function NotesScreen({
   ownerId,
@@ -16,12 +18,14 @@ export function NotesScreen({
   now,
   newId,
   sync,
+  discovery,
 }: {
   ownerId: string;
   databases: LocalDatabaseFactory;
   now: () => string;
   newId: () => string;
   sync?: PrivateSyncService;
+  discovery?: PublicDiscovery;
 }) {
   const [repository, setRepository] = useState<PrivateNoteRepository | null>(
     null,
@@ -141,12 +145,30 @@ export function NotesScreen({
     }
   }
 
+  async function publish(note: PrivateNote) {
+    if (!discovery) return;
+    await discovery.publish(
+      createPublicSnapshot({
+        id: note.id,
+        authorId: ownerId,
+        note,
+        title: note.title,
+        tags: note.tags,
+        acceptedReuseTerms: true,
+        now: now(),
+        version: Math.floor(Date.now() / 1000),
+      }),
+    );
+  }
+
   if (selected) {
     return (
       <NoteEditorScreen
         note={selected}
         now={now}
         onSave={save}
+        onPublish={discovery ? publish : undefined}
+        onUnpublish={discovery ? (id) => discovery.unpublish(id) : undefined}
         onClose={() => {
           setSelected(null);
           if (repository) void refresh(repository);

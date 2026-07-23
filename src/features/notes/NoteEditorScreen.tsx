@@ -25,11 +25,15 @@ export function NoteEditorScreen({
   now,
   onSave,
   onClose,
+  onPublish,
+  onUnpublish,
 }: {
   note: PrivateNote;
   now: () => string;
   onSave: (note: PrivateNote) => Promise<void>;
   onClose: () => void;
+  onPublish?: (note: PrivateNote) => Promise<void>;
+  onUnpublish?: (noteId: string) => Promise<void>;
 }) {
   const [title, setTitle] = useState(note.title);
   const [tagsInput, setTagsInput] = useState(note.tags.join(", "));
@@ -234,6 +238,23 @@ export function NoteEditorScreen({
     if (await persist()) onClose();
   }
 
+  async function publish() {
+    if (
+      !onPublish ||
+      !window.confirm(
+        `Publish “${latest.current.title}” with tags: ${latest.current.tags.join(", ")}? You confirm you have rights and accept reuse terms.`,
+      )
+    )
+      return;
+    if (await persist())
+      await onPublish(
+        editPrivateNote(note, {
+          ...structuredClone(latest.current),
+          now: now(),
+        }),
+      );
+  }
+
   return (
     <section className="editor-screen" aria-label="개인 노트 편집기">
       <header className="editor-header">
@@ -345,6 +366,10 @@ export function NoteEditorScreen({
           />
           <button onClick={enterSourceMode}>Markdown</button>
           <button onClick={exportMarkdown}>Export</button>
+          {onPublish && <button onClick={() => void publish()}>Publish</button>}
+          {onUnpublish && (
+            <button onClick={() => void onUnpublish(note.id)}>Unpublish</button>
+          )}
         </div>
       )}
       {!sourceMode && editor?.isActive("table") && (

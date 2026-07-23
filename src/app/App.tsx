@@ -32,6 +32,7 @@ export function App({ dependencies }: { dependencies: AppDependencies }) {
                 ownerId={session.userId}
                 databases={dependencies.databases}
                 sync={dependencies.sync}
+                discovery={dependencies.discovery}
                 now={() => dependencies.now()}
                 newId={() => dependencies.newId()}
               />
