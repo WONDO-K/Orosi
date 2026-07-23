@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import { Color } from "@tiptap/extension-color";
+import Image from "@tiptap/extension-image";
+import {
+  Table,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from "@tiptap/extension-table";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
+import { TextStyle } from "@tiptap/extension-text-style";
+import UniqueID from "@tiptap/extension-unique-id";
+import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { editPrivateNote, type NoteDocument, type PrivateNote } from "./note";
+
+type SaveState = "saved" | "saving" | "error";
 
 export function NoteEditorScreen({
   note,
@@ -15,9 +30,10 @@ export function NoteEditorScreen({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(note.title);
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
-    "saved",
-  );
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [sourceMode, setSourceMode] = useState(false);
+  const [markdownDraft, setMarkdownDraft] = useState("");
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveChain = useRef<Promise<boolean>>(Promise.resolve(true));
   const saveAttempt = useRef(0);
@@ -28,7 +44,7 @@ export function NoteEditorScreen({
     document: note.document,
   });
 
-  function setCurrentSaveState(next: "saved" | "saving" | "error") {
+  function setCurrentSaveState(next: SaveState) {
     if (mounted.current) setSaveState(next);
   }
 
@@ -39,9 +55,26 @@ export function NoteEditorScreen({
   }
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit,
+      TextStyle,
+      Color,
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      Image,
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      UniqueID.configure({
+        types: ["paragraph", "heading", "bulletList", "orderedList", "table"],
+      }),
+      Markdown,
+    ],
     content: note.document,
-    editorProps: { attributes: { "aria-label": "노트 내용", role: "textbox" } },
+    editorProps: {
+      attributes: { "aria-label": "노트 내용", role: "textbox" },
+    },
     onUpdate: ({ editor: current }) => {
       latest.current.document = current.getJSON() as NoteDocument;
       draftVersion.current += 1;
@@ -81,6 +114,29 @@ export function NoteEditorScreen({
     return saveChain.current;
   }
 
+  function enterSourceMode() {
+    if (!editor) return;
+    setMarkdownDraft(editor.getMarkdown());
+    setSourceError(null);
+    setSourceMode(true);
+  }
+
+  function applyMarkdown() {
+    if (!editor) return;
+    try {
+      editor.commands.setContent(markdownDraft, { contentType: "markdown" });
+      latest.current.document = editor.getJSON() as NoteDocument;
+      draftVersion.current += 1;
+      scheduleSave();
+      setSourceError(null);
+      setSourceMode(false);
+    } catch {
+      setSourceError(
+        "Markdown could not be applied. Your draft is still safe here.",
+      );
+    }
+  }
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -98,7 +154,7 @@ export function NoteEditorScreen({
       <header className="editor-header">
         <button onClick={() => void close()}>닫기</button>
         <span role="status">
-          {saveState === "saved" && "기록이 저장됨"}
+          {saveState === "saved" && "기기에 저장됨"}
           {saveState === "saving" && "저장 중"}
           {saveState === "error" && "아직 저장하지 못했어요."}
         </span>
@@ -114,11 +170,99 @@ export function NoteEditorScreen({
           scheduleSave();
         }}
       />
-      <EditorContent className="basic-editor" editor={editor} />
+      {!sourceMode && editor && (
+        <div className="editor-toolbar" aria-label="Formatting controls">
+          <button onClick={() => editor.chain().focus().toggleBold().run()}>
+            Bold
+          </button>
+          <button onClick={() => editor.chain().focus().toggleItalic().run()}>
+            Italic
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleUnderline().run()}
+          >
+            Underline
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+          >
+            Bullets
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          >
+            Numbered
+          </button>
+          <button onClick={() => editor.chain().focus().toggleTaskList().run()}>
+            Tasks
+          </button>
+          <button
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                .run()
+            }
+          >
+            Table
+          </button>
+          <button onClick={() => editor.chain().focus().undo().run()}>
+            Undo
+          </button>
+          <button onClick={() => editor.chain().focus().redo().run()}>
+            Redo
+          </button>
+          <button onClick={enterSourceMode}>Markdown</button>
+        </div>
+      )}
+      {!sourceMode && editor?.isActive("table") && (
+        <div className="table-toolbar" aria-label="Table controls">
+          <button onClick={() => editor.chain().focus().addColumnAfter().run()}>
+            Add column
+          </button>
+          <button onClick={() => editor.chain().focus().addRowAfter().run()}>
+            Add row
+          </button>
+          <button onClick={() => editor.chain().focus().deleteColumn().run()}>
+            Delete column
+          </button>
+          <button onClick={() => editor.chain().focus().deleteRow().run()}>
+            Delete row
+          </button>
+          <button onClick={() => editor.chain().focus().mergeOrSplit().run()}>
+            Merge or split
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+          >
+            Header row
+          </button>
+        </div>
+      )}
+      {sourceMode ? (
+        <div className="markdown-source">
+          <label htmlFor="markdown-source">Markdown source</label>
+          <textarea
+            id="markdown-source"
+            value={markdownDraft}
+            onChange={(event) => setMarkdownDraft(event.target.value)}
+          />
+          {sourceError && <p role="alert">{sourceError}</p>}
+          <button onClick={applyMarkdown}>Apply Markdown</button>
+          <button onClick={() => setSourceMode(false)}>
+            Keep rich version
+          </button>
+        </div>
+      ) : (
+        <EditorContent className="basic-editor" editor={editor} />
+      )}
       {saveState === "error" && (
         <div className="save-error" role="alert">
-          <p>작성 중인 내용은 화면에 그대로 있어요.</p>
-          <button onClick={() => void persist()}>다시 저장</button>
+          <p>
+            Your draft remains in this editor. Try saving again before closing.
+          </p>
+          <button onClick={() => void persist()}>Retry save</button>
         </div>
       )}
     </section>

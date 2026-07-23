@@ -57,7 +57,7 @@ describe("NoteEditorScreen persistence", () => {
       second.resolve();
       await Promise.resolve();
     });
-    expect(screen.getByRole("status")).toHaveTextContent("기록이 저장됨");
+    expect(screen.getByRole("status")).toHaveTextContent("기기에 저장됨");
   });
 
   it("updates save feedback when mounted under StrictMode", async () => {
@@ -80,7 +80,7 @@ describe("NoteEditorScreen persistence", () => {
     );
 
     fireEvent.change(screen.getByRole("textbox", { name: "노트 제목" }), {
-      target: { value: "엄격 모드" },
+      target: { value: "Changed note" },
     });
     expect(screen.getByRole("status")).toHaveTextContent("저장 중");
 
@@ -88,6 +88,25 @@ describe("NoteEditorScreen persistence", () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("status")).toHaveTextContent("기록이 저장됨");
+    expect(screen.getByRole("status")).toHaveTextContent("기기에 저장됨");
+  });
+
+  it("opens a Markdown source draft without changing the rich document", () => {
+    render(
+      <NoteEditorScreen
+        note={createPrivateNote("user-a", "2026-07-22T03:00:00.000Z", "note-a")}
+        now={() => "2026-07-22T03:00:00.000Z"}
+        onSave={() => Promise.resolve()}
+        onClose={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
+    expect(
+      screen.getByRole("textbox", { name: "Markdown source" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Keep rich version" }),
+    ).toBeVisible();
   });
 });
