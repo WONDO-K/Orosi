@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unnecessary-type-assertion */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type { PublicSnapshot } from "./publication";
+import type { ProvenanceLink, PublicSnapshot } from "./publication";
 
 const configSchema = z.object({
   VITE_SUPABASE_URL: z.url(),
@@ -14,6 +14,10 @@ export interface PublicDiscovery {
   unpublish(publicationId: string): Promise<void>;
   search(query: string): Promise<PublicSnapshot[]>;
   get(publicationId: string, version: number): Promise<PublicSnapshot>;
+  recordProvenance(
+    destinationNoteId: string,
+    link: ProvenanceLink,
+  ): Promise<void>;
 }
 
 export class SupabasePublicDiscovery implements PublicDiscovery {
@@ -88,6 +92,26 @@ export class SupabasePublicDiscovery implements PublicDiscovery {
       digest: data.digest,
       publishedAt: data.published_at,
     } as PublicSnapshot;
+  }
+  async recordProvenance(
+    destinationNoteId: string,
+    link: ProvenanceLink,
+  ): Promise<void> {
+    const ownerId = (await this.client.auth.getUser()).data.user?.id;
+    const { error } = await this.client
+      .from("provenance_links")
+      .insert({
+        owner_id: ownerId,
+        destination_note_id: destinationNoteId,
+        publication_id: link.publicationId,
+        version: link.version,
+        author_id: link.authorId,
+        scope: link.scope,
+        digest: link.digest,
+        destination_block_ids: link.destinationBlockIds,
+        imported_at: link.importedAt,
+      });
+    if (error) throw error;
   }
 }
 

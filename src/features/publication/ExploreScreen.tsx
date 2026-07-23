@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPrivateNote, editPrivateNote } from "@/features/notes/note";
 import type { LocalDatabaseFactory } from "@/platform/database/databaseFactory";
 import {
+  provenanceFor,
   selectImportDocument,
   type ImportScope,
   type PublicSnapshot,
@@ -35,15 +36,20 @@ export function ExploreScreen({
       const snapshot = await discovery.get(result.id, result.version);
       const repository = await databases.open(ownerId);
       const note = createPrivateNote(ownerId, now(), newId());
+      const document = selectImportDocument(snapshot, scope);
       await repository.put(
         editPrivateNote(note, {
           title: snapshot.title,
-          document: selectImportDocument(snapshot, scope),
+          document,
           tags: snapshot.tags,
           now: now(),
         }),
       );
       await repository.close();
+      await discovery.recordProvenance(
+        note.id,
+        provenanceFor({ snapshot, scope, document, now: now() }),
+      );
       setMessage("개인 노트로 가져왔습니다.");
     } catch {
       setMessage("가져오지 못했습니다. 공개본이 사라졌을 수 있습니다.");
