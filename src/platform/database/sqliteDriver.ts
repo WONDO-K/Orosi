@@ -145,6 +145,13 @@ interface SharedConnection {
   closePromise?: Promise<void>;
 }
 
+interface DatabaseLifecycle {
+  generation: number;
+  connection?: SharedConnection;
+  pendingConnection?: Promise<SharedConnection>;
+  destroyPromise?: Promise<void>;
+}
+
 function databaseName(ownerId: string): string {
   if (!/^[A-Za-z0-9-]{1,128}$/.test(ownerId)) {
     throw new Error("Invalid local account id");
@@ -159,11 +166,7 @@ function randomPassphrase(): string {
 }
 
 export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
-  private readonly connections = new Map<string, SharedConnection>();
-  private readonly pendingConnections = new Map<
-    string,
-    Promise<SharedConnection>
-  >();
+  private readonly lifecycles = new Map<string, DatabaseLifecycle>();
 
   constructor(
     private readonly sqlite: SqliteConnectionManager = new CapacitorSqliteConnectionManager(),
@@ -171,19 +174,66 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
 
   async open(ownerId: string): Promise<SqliteNoteRepository> {
     const name = databaseName(ownerId);
-    const shared = await this.acquireConnection(name);
+    const { generation, lifecycle, shared } =
+      await this.acquireConnection(name);
+    if (lifecycle.generation !== generation || lifecycle.destroyPromise) {
+      throw new Error("Local database was destroyed while opening.");
+    }
     shared.leases += 1;
     return new SqliteNoteRepository(
       ownerId,
       new LeasedSqlDriver(shared.driver, () =>
-        this.releaseConnection(name, shared),
+        this.releaseConnection(lifecycle, shared),
       ),
     );
   }
 
   async destroy(ownerId: string): Promise<void> {
     const name = databaseName(ownerId);
-    this.connections.delete(name);
+    const lifecycle = this.getLifecycle(name);
+    if (lifecycle.destroyPromise) {
+      await lifecycle.destroyPromise;
+      return;
+    }
+
+    lifecycle.generation += 1;
+    const destroying = this.destroyLifecycle(name, lifecycle);
+    lifecycle.destroyPromise = destroying;
+    try {
+      await destroying;
+    } finally {
+      if (lifecycle.destroyPromise === destroying) {
+        lifecycle.destroyPromise = undefined;
+      }
+    }
+  }
+
+  private getLifecycle(name: string): DatabaseLifecycle {
+    let lifecycle = this.lifecycles.get(name);
+    if (!lifecycle) {
+      lifecycle = { generation: 0 };
+      this.lifecycles.set(name, lifecycle);
+    }
+    return lifecycle;
+  }
+
+  private async destroyLifecycle(
+    name: string,
+    lifecycle: DatabaseLifecycle,
+  ): Promise<void> {
+    const pending = lifecycle.pendingConnection;
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        // Initialization owns cleanup for any connection it registered.
+      }
+    }
+
+    const shared = lifecycle.connection;
+    lifecycle.connection = undefined;
+    if (shared?.closePromise) await shared.closePromise;
+
     const isOpen =
       (await this.sqlite.isConnection(name, false)).result === true;
     if (isOpen) await this.sqlite.closeConnection(name, false);
@@ -191,29 +241,58 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
     if (exists) await this.sqlite.deleteDatabase(name);
   }
 
-  private async acquireConnection(name: string): Promise<SharedConnection> {
-    const existing = this.connections.get(name);
-    if (existing) {
-      if (existing.closePromise) {
-        await existing.closePromise;
-        return this.acquireConnection(name);
+  private async acquireConnection(name: string): Promise<{
+    generation: number;
+    lifecycle: DatabaseLifecycle;
+    shared: SharedConnection;
+  }> {
+    while (true) {
+      const lifecycle = this.getLifecycle(name);
+      if (lifecycle.destroyPromise) {
+        await lifecycle.destroyPromise;
+        continue;
       }
-      return existing;
+
+      const generation = lifecycle.generation;
+      const existing = lifecycle.connection;
+      if (existing) {
+        if (existing.closePromise) {
+          await existing.closePromise;
+          continue;
+        }
+        return { generation, lifecycle, shared: existing };
+      }
+
+      let opening = lifecycle.pendingConnection;
+      if (!opening) {
+        opening = this.createConnection(name, lifecycle);
+        lifecycle.pendingConnection = opening;
+        void opening.then(
+          () => {
+            if (lifecycle.pendingConnection === opening) {
+              lifecycle.pendingConnection = undefined;
+            }
+          },
+          () => {
+            if (lifecycle.pendingConnection === opening) {
+              lifecycle.pendingConnection = undefined;
+            }
+          },
+        );
+      }
+
+      const shared = await opening;
+      if (lifecycle.generation !== generation || lifecycle.destroyPromise) {
+        throw new Error("Local database was destroyed while opening.");
+      }
+      return { generation, lifecycle, shared };
     }
-
-    const pending = this.pendingConnections.get(name);
-    if (pending) return pending;
-
-    const opening = this.createConnection(name);
-    this.pendingConnections.set(name, opening);
-    void opening.then(
-      () => this.pendingConnections.delete(name),
-      () => this.pendingConnections.delete(name),
-    );
-    return opening;
   }
 
-  private async createConnection(name: string): Promise<SharedConnection> {
+  private async createConnection(
+    name: string,
+    lifecycle: DatabaseLifecycle,
+  ): Promise<SharedConnection> {
     const exists = (await this.sqlite.isDatabase(name)).result === true;
     const hasSecret = (await this.sqlite.isSecretStored()).result === true;
     if (exists && !hasSecret) {
@@ -237,7 +316,7 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
       const driver = new CapacitorSqlDriver(connection, this.sqlite, name);
       await driver.execute(migration001);
       const shared = { driver, leases: 0 };
-      this.connections.set(name, shared);
+      lifecycle.connection = shared;
       return shared;
     } catch (error) {
       if (ownsConnection) await this.sqlite.closeConnection(name, false);
@@ -246,10 +325,10 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
   }
 
   private async releaseConnection(
-    name: string,
+    lifecycle: DatabaseLifecycle,
     shared: SharedConnection,
   ): Promise<void> {
-    if (this.connections.get(name) !== shared || shared.leases === 0) return;
+    if (lifecycle.connection !== shared || shared.leases === 0) return;
 
     shared.leases -= 1;
     if (shared.leases > 0) return;
@@ -258,8 +337,8 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
     try {
       await shared.closePromise;
     } finally {
-      if (this.connections.get(name) === shared) {
-        this.connections.delete(name);
+      if (lifecycle.connection === shared) {
+        lifecycle.connection = undefined;
       }
     }
   }
