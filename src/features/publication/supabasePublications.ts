@@ -3,6 +3,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { ProvenanceLink, PublicSnapshot } from "./publication";
+import type { ReportCategory } from "@/features/safety/safety";
 
 const configSchema = z.object({
   VITE_SUPABASE_URL: z.url(),
@@ -17,6 +18,12 @@ export interface PublicDiscovery {
   recordProvenance(
     destinationNoteId: string,
     link: ProvenanceLink,
+  ): Promise<void>;
+  blockAuthor(authorId: string): Promise<void>;
+  report(
+    publicationId: string,
+    authorId: string,
+    category: ReportCategory,
   ): Promise<void>;
 }
 
@@ -98,18 +105,39 @@ export class SupabasePublicDiscovery implements PublicDiscovery {
     link: ProvenanceLink,
   ): Promise<void> {
     const ownerId = (await this.client.auth.getUser()).data.user?.id;
+    const { error } = await this.client.from("provenance_links").insert({
+      owner_id: ownerId,
+      destination_note_id: destinationNoteId,
+      publication_id: link.publicationId,
+      version: link.version,
+      author_id: link.authorId,
+      scope: link.scope,
+      digest: link.digest,
+      destination_block_ids: link.destinationBlockIds,
+      imported_at: link.importedAt,
+    });
+    if (error) throw error;
+  }
+  async blockAuthor(authorId: string): Promise<void> {
+    const ownerId = (await this.client.auth.getUser()).data.user?.id;
     const { error } = await this.client
-      .from("provenance_links")
+      .from("author_blocks")
+      .upsert({ owner_id: ownerId, blocked_author_id: authorId });
+    if (error) throw error;
+  }
+  async report(
+    publicationId: string,
+    authorId: string,
+    category: ReportCategory,
+  ): Promise<void> {
+    const reporterId = (await this.client.auth.getUser()).data.user?.id;
+    const { error } = await this.client
+      .from("content_reports")
       .insert({
-        owner_id: ownerId,
-        destination_note_id: destinationNoteId,
-        publication_id: link.publicationId,
-        version: link.version,
-        author_id: link.authorId,
-        scope: link.scope,
-        digest: link.digest,
-        destination_block_ids: link.destinationBlockIds,
-        imported_at: link.importedAt,
+        reporter_id: reporterId,
+        publication_id: publicationId,
+        reported_author_id: authorId,
+        category,
       });
     if (error) throw error;
   }
