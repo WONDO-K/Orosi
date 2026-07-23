@@ -38,18 +38,30 @@ class RecordingConnection {
 
 class RecordingManager implements SqliteConnectionManager {
   readonly created: string[] = [];
+  readonly closeAttempts: string[] = [];
   readonly closed: string[] = [];
   readonly deleted: string[] = [];
   readonly databases = new Set<string>();
+  readonly storedSecrets: string[] = [];
   readonly lifecycleEvents: string[] = [];
   readonly registered = new Set<string>();
   secretStored = true;
+  databaseListError?: Error;
+  nextCloseError?: Error;
   nextOpenError?: Error;
   nextExecuteError?: Error;
+  private pauseNextClose = false;
   private pauseNextCreate = false;
   private pauseNextDelete = false;
+  private pauseNextSecretSet = false;
+  private resumeClose?: () => void;
   private resumeCreate?: () => void;
   private resumeDelete?: () => void;
+  private resumeSecretSet?: () => void;
+  private closePaused: () => void = () => undefined;
+  private readonly pausedClose = new Promise<void>((resolve) => {
+    this.closePaused = resolve;
+  });
   private createdPaused: () => void = () => undefined;
   private readonly createPaused = new Promise<void>((resolve) => {
     this.createdPaused = resolve;
@@ -57,6 +69,10 @@ class RecordingManager implements SqliteConnectionManager {
   private deletedPaused: () => void = () => undefined;
   private readonly deletePaused = new Promise<void>((resolve) => {
     this.deletedPaused = resolve;
+  });
+  private secretSetPaused: () => void = () => undefined;
+  private readonly pausedSecretSet = new Promise<void>((resolve) => {
+    this.secretSetPaused = resolve;
   });
 
   isDatabase(database: string): Promise<{ result?: boolean }> {
@@ -67,8 +83,37 @@ class RecordingManager implements SqliteConnectionManager {
     return Promise.resolve({ result: this.secretStored });
   }
 
-  setEncryptionSecret(): Promise<void> {
-    return Promise.resolve();
+  async setEncryptionSecret(passphrase: string): Promise<void> {
+    this.storedSecrets.push(passphrase);
+    if (this.pauseNextSecretSet) {
+      this.pauseNextSecretSet = false;
+      this.secretSetPaused();
+      await new Promise<void>((resolve) => {
+        this.resumeSecretSet = resolve;
+      });
+    }
+    this.secretStored = true;
+  }
+
+  getDatabaseList(): Promise<{ values?: unknown[] }> {
+    if (this.databaseListError) {
+      return Promise.reject(this.databaseListError);
+    }
+    return Promise.resolve({
+      values: [...this.databases].map((name) => `${name}SQLite.db`),
+    });
+  }
+
+  pauseBeforeNextSecretSet(): void {
+    this.pauseNextSecretSet = true;
+  }
+
+  waitForPausedSecretSet(): Promise<void> {
+    return this.pausedSecretSet;
+  }
+
+  resumePausedSecretSet(): void {
+    this.resumeSecretSet?.();
   }
 
   async createConnection(database: string): Promise<SQLiteDBConnection> {
@@ -122,15 +167,39 @@ class RecordingManager implements SqliteConnectionManager {
     this.resumeDelete?.();
   }
 
+  pauseBeforeNextClose(): void {
+    this.pauseNextClose = true;
+  }
+
+  waitForPausedClose(): Promise<void> {
+    return this.pausedClose;
+  }
+
+  resumePausedClose(): void {
+    this.resumeClose?.();
+  }
+
   isConnection(database: string): Promise<{ result?: boolean }> {
     return Promise.resolve({ result: this.registered.has(database) });
   }
 
-  closeConnection(database: string): Promise<void> {
+  async closeConnection(database: string): Promise<void> {
+    this.closeAttempts.push(database);
+    if (this.pauseNextClose) {
+      this.pauseNextClose = false;
+      this.closePaused();
+      await new Promise<void>((resolve) => {
+        this.resumeClose = resolve;
+      });
+    }
+    if (this.nextCloseError) {
+      const error = this.nextCloseError;
+      this.nextCloseError = undefined;
+      throw error;
+    }
     this.closed.push(database);
     this.registered.delete(database);
     this.lifecycleEvents.push(`closed:${database}`);
-    return Promise.resolve();
   }
 
   async deleteDatabase(database: string): Promise<void> {
@@ -147,7 +216,62 @@ class RecordingManager implements SqliteConnectionManager {
   }
 }
 
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe("CapacitorSqliteDatabaseFactory", () => {
+  it("sets the app-global encryption secret once for concurrent different-owner opens", async () => {
+    const manager = new RecordingManager();
+    manager.secretStored = false;
+    manager.databaseListError = new Error(
+      "getDatabaseList: No databases available ",
+    );
+    manager.pauseBeforeNextSecretSet();
+    const factory = new CapacitorSqliteDatabaseFactory(manager);
+
+    const firstOpening = factory.open("user-a");
+    await manager.waitForPausedSecretSet();
+    const secondOpening = factory.open("user-b");
+    await flushMicrotasks();
+
+    manager.resumePausedSecretSet();
+    await Promise.all([firstOpening, secondOpening]);
+
+    expect(manager.storedSecrets).toHaveLength(1);
+    expect(manager.created).toEqual(["orosi_user-a", "orosi_user-b"]);
+  });
+
+  it("fails closed when any Orosi database exists without the app-global secret", async () => {
+    const manager = new RecordingManager();
+    manager.secretStored = false;
+    manager.databases.add("orosi_user-a");
+    const factory = new CapacitorSqliteDatabaseFactory(manager);
+
+    await expect(factory.open("user-b")).rejects.toThrow(
+      "encryption secret is unavailable",
+    );
+
+    expect(manager.storedSecrets).toEqual([]);
+    expect(manager.created).toEqual([]);
+  });
+
+  it("propagates unrelated database-list errors without setting a secret", async () => {
+    const manager = new RecordingManager();
+    manager.secretStored = false;
+    manager.databaseListError = new Error("database list permission denied");
+    const factory = new CapacitorSqliteDatabaseFactory(manager);
+
+    await expect(factory.open("user-a")).rejects.toThrow(
+      "database list permission denied",
+    );
+
+    expect(manager.storedSecrets).toEqual([]);
+    expect(manager.created).toEqual([]);
+  });
+
   it("removes the manager registration when a repository closes so it can reopen", async () => {
     const manager = new RecordingManager();
     const factory = new CapacitorSqliteDatabaseFactory(manager);
@@ -168,6 +292,44 @@ describe("CapacitorSqliteDatabaseFactory", () => {
 
     expect(manager.closed).toEqual(["orosi_user-a"]);
     expect(manager.registered).toEqual(new Set());
+  });
+
+  it("retries a failed final lease close", async () => {
+    const manager = new RecordingManager();
+    const factory = new CapacitorSqliteDatabaseFactory(manager);
+    const repository = await factory.open("user-a");
+    manager.nextCloseError = new Error("close failed");
+
+    await expect(repository.close()).rejects.toThrow("close failed");
+    await expect(repository.close()).resolves.toBeUndefined();
+
+    expect(manager.closeAttempts).toEqual(["orosi_user-a", "orosi_user-a"]);
+    expect(manager.closed).toEqual(["orosi_user-a"]);
+    expect(manager.registered).toEqual(new Set());
+  });
+
+  it("continues authoritative destroy cleanup after a pending close fails", async () => {
+    const manager = new RecordingManager();
+    const factory = new CapacitorSqliteDatabaseFactory(manager);
+    const repository = await factory.open("user-a");
+    manager.nextCloseError = new Error("close failed");
+    manager.pauseBeforeNextClose();
+
+    const closing = repository.close();
+    await manager.waitForPausedClose();
+    const destroying = factory.destroy("user-a");
+    const closeResult = expect(closing).rejects.toThrow("close failed");
+    const destroyResult = expect(destroying).resolves.toBeUndefined();
+
+    manager.resumePausedClose();
+
+    await closeResult;
+    await destroyResult;
+    expect(manager.closeAttempts).toEqual(["orosi_user-a", "orosi_user-a"]);
+    expect(manager.closed).toEqual(["orosi_user-a"]);
+    expect(manager.deleted).toEqual(["orosi_user-a"]);
+    expect(manager.registered).toEqual(new Set());
+    expect(manager.databases).toEqual(new Set());
   });
 
   it("cleans up its registered connection when migration execution fails", async () => {

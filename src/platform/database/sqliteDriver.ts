@@ -21,6 +21,7 @@ export interface SqliteConnectionManager {
   isDatabase(database: string): Promise<{ result?: boolean }>;
   isSecretStored(): Promise<{ result?: boolean }>;
   setEncryptionSecret(passphrase: string): Promise<void>;
+  getDatabaseList(): Promise<{ values?: unknown[] }>;
   createConnection(
     database: string,
     encrypted: boolean,
@@ -49,6 +50,10 @@ class CapacitorSqliteConnectionManager implements SqliteConnectionManager {
 
   setEncryptionSecret(passphrase: string) {
     return this.sqlite.setEncryptionSecret(passphrase);
+  }
+
+  getDatabaseList() {
+    return this.sqlite.getDatabaseList();
   }
 
   createConnection(
@@ -111,6 +116,7 @@ class CapacitorSqlDriver implements SqlDriver {
 
 class LeasedSqlDriver implements SqlDriver {
   private closed = false;
+  private closing?: Promise<void>;
 
   constructor(
     private readonly shared: SqlDriver,
@@ -132,10 +138,22 @@ class LeasedSqlDriver implements SqlDriver {
     return this.shared.query<T>(statement, values);
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    await this.release();
+  close(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.closing) return this.closing;
+
+    const closing = this.release().then(
+      () => {
+        this.closed = true;
+        if (this.closing === closing) this.closing = undefined;
+      },
+      (error: unknown) => {
+        if (this.closing === closing) this.closing = undefined;
+        throw error;
+      },
+    );
+    this.closing = closing;
+    return closing;
   }
 }
 
@@ -167,6 +185,7 @@ function randomPassphrase(): string {
 
 export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
   private readonly lifecycles = new Map<string, DatabaseLifecycle>();
+  private secretInitialization?: Promise<void>;
 
   constructor(
     private readonly sqlite: SqliteConnectionManager = new CapacitorSqliteConnectionManager(),
@@ -232,7 +251,14 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
 
     const shared = lifecycle.connection;
     lifecycle.connection = undefined;
-    if (shared?.closePromise) await shared.closePromise;
+    if (shared?.closePromise) {
+      try {
+        await shared.closePromise;
+      } catch {
+        // Destroy owns the authoritative cleanup below. A failed lease close
+        // must not prevent a second native close attempt and database delete.
+      }
+    }
 
     const isOpen =
       (await this.sqlite.isConnection(name, false)).result === true;
@@ -257,7 +283,12 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
       const existing = lifecycle.connection;
       if (existing) {
         if (existing.closePromise) {
-          await existing.closePromise;
+          try {
+            await existing.closePromise;
+          } catch {
+            // A failed final close leaves the shared connection available for
+            // the owning lease to retry or for a new lease to acquire.
+          }
           continue;
         }
         return { generation, lifecycle, shared: existing };
@@ -293,14 +324,7 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
     name: string,
     lifecycle: DatabaseLifecycle,
   ): Promise<SharedConnection> {
-    const exists = (await this.sqlite.isDatabase(name)).result === true;
-    const hasSecret = (await this.sqlite.isSecretStored()).result === true;
-    if (exists && !hasSecret) {
-      throw new Error(
-        "Local encrypted notes cannot be opened because the encryption secret is unavailable.",
-      );
-    }
-    if (!hasSecret) await this.sqlite.setEncryptionSecret(randomPassphrase());
+    await this.ensureEncryptionSecret();
 
     let ownsConnection = false;
     try {
@@ -330,16 +354,74 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
   ): Promise<void> {
     if (lifecycle.connection !== shared || shared.leases === 0) return;
 
-    shared.leases -= 1;
-    if (shared.leases > 0) return;
+    if (shared.leases > 1) {
+      shared.leases -= 1;
+      return;
+    }
 
-    shared.closePromise = shared.driver.close();
+    const closing = shared.driver.close();
+    shared.closePromise = closing;
     try {
-      await shared.closePromise;
-    } finally {
+      await closing;
+      shared.leases = 0;
       if (lifecycle.connection === shared) {
         lifecycle.connection = undefined;
       }
+    } catch (error) {
+      if (shared.closePromise === closing) {
+        shared.closePromise = undefined;
+      }
+      throw error;
+    }
+  }
+
+  private ensureEncryptionSecret(): Promise<void> {
+    const existing = this.secretInitialization;
+    if (existing) return existing;
+
+    const initializing = this.initializeEncryptionSecret();
+    this.secretInitialization = initializing;
+    void initializing.then(
+      () => {
+        if (this.secretInitialization === initializing) {
+          this.secretInitialization = undefined;
+        }
+      },
+      () => {
+        if (this.secretInitialization === initializing) {
+          this.secretInitialization = undefined;
+        }
+      },
+    );
+    return initializing;
+  }
+
+  private async initializeEncryptionSecret(): Promise<void> {
+    const hasSecret = (await this.sqlite.isSecretStored()).result === true;
+    if (hasSecret) return;
+
+    const databases = await this.listDatabaseFiles();
+    const hasOrosiDatabase = databases.some(
+      (database) =>
+        typeof database === "string" &&
+        /^orosi_[A-Za-z0-9-]+SQLite\.db$/.test(database),
+    );
+    if (hasOrosiDatabase) {
+      throw new Error(
+        "Local encrypted notes cannot be opened because the encryption secret is unavailable.",
+      );
+    }
+
+    await this.sqlite.setEncryptionSecret(randomPassphrase());
+  }
+
+  private async listDatabaseFiles(): Promise<unknown[]> {
+    try {
+      return (await this.sqlite.getDatabaseList()).values ?? [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/No databases available/i.test(message)) return [];
+      throw error;
     }
   }
 }
