@@ -5,6 +5,7 @@ import { IndexedDbDatabaseFactory } from "@/platform/database/indexedDbNotes";
 import { CapacitorSqliteDatabaseFactory } from "@/platform/database/sqliteDriver";
 import { PrivateSyncService } from "@/features/sync/privateSync";
 import { createSupabasePrivateSyncRemote } from "@/features/sync/supabasePrivateSync";
+import { createSupabasePublicDiscovery } from "@/features/publication/supabasePublications";
 import type { AppDependencies, PlatformKind } from "./dependencies";
 
 export function createRuntimeDependencies(): AppDependencies {
@@ -20,6 +21,7 @@ export function createRuntimeDependencies(): AppDependencies {
       newId,
       now,
     ),
+    discovery: createSupabasePublicDiscovery(import.meta.env),
     platform: Capacitor.getPlatform() as PlatformKind,
     now,
     newId,

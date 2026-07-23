@@ -32,10 +32,7 @@ describe("protected Orosi shell", () => {
       await screen.findByRole("navigation", { name: "주요 메뉴" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "내 노트" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "둘러보기" })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(screen.getByRole("button", { name: "둘러보기" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "설정" })).toBeVisible();
   });
 

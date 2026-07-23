@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { NotesScreen } from "@/features/notes/NotesScreen";
+import { ExploreScreen } from "@/features/publication/ExploreScreen";
 import type { AppDependencies } from "./dependencies";
 
-type Tab = "notes" | "settings";
+type Tab = "notes" | "explore" | "settings";
 
 export function App({ dependencies }: { dependencies: AppDependencies }) {
   const [tab, setTab] = useState<Tab>("notes");
@@ -34,6 +35,14 @@ export function App({ dependencies }: { dependencies: AppDependencies }) {
                 now={() => dependencies.now()}
                 newId={() => dependencies.newId()}
               />
+            ) : tab === "explore" ? (
+              <ExploreScreen
+                ownerId={session.userId}
+                databases={dependencies.databases}
+                discovery={dependencies.discovery}
+                now={() => dependencies.now()}
+                newId={() => dependencies.newId()}
+              />
             ) : (
               <div>
                 <h1>설정</h1>
@@ -51,7 +60,10 @@ export function App({ dependencies }: { dependencies: AppDependencies }) {
             >
               내 노트
             </button>
-            <button aria-disabled="true" disabled>
+            <button
+              aria-current={tab === "explore" ? "page" : undefined}
+              onClick={() => setTab("explore")}
+            >
               둘러보기
             </button>
             <button
