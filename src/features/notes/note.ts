@@ -10,12 +10,25 @@ export interface PrivateNote {
   document: NoteDocument;
   derivedText: string;
   tags: string[];
+  markdownDraft: string | null;
+  assets: NoteAssetReference[];
   createdAt: string;
   updatedAt: string;
   baseRevision: number;
   syncState: NoteSyncState;
   deletedAt: string | null;
   purgeAfter: string | null;
+}
+
+export interface NoteAssetReference {
+  id: string;
+  uri: string;
+  mimeType: string;
+  byteSize: number;
+  sha256: string;
+  width: number | null;
+  height: number | null;
+  createdAt: string;
 }
 
 export const EMPTY_DOCUMENT: NoteDocument = {
@@ -37,6 +50,8 @@ export function createPrivateNote(
     document: structuredClone(EMPTY_DOCUMENT),
     derivedText: "",
     tags: [],
+    markdownDraft: null,
+    assets: [],
     createdAt: now,
     updatedAt: now,
     baseRevision: 0,
@@ -62,6 +77,8 @@ export function editPrivateNote(
     title: string;
     document: NoteDocument;
     tags?: string[];
+    markdownDraft?: string | null;
+    assets?: NoteAssetReference[];
     now: string;
   },
 ): PrivateNote {
@@ -72,6 +89,11 @@ export function editPrivateNote(
     title: change.title.trim() || "제목 없는 노트",
     document: structuredClone(change.document),
     tags: change.tags ? [...new Set(change.tags)] : note.tags,
+    markdownDraft:
+      change.markdownDraft === undefined
+        ? note.markdownDraft
+        : change.markdownDraft,
+    assets: change.assets === undefined ? note.assets : change.assets,
     derivedText: derivePlainText(change.document),
     updatedAt: change.now,
     syncState: "pending",

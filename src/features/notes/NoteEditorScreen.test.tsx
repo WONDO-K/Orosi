@@ -109,4 +109,74 @@ describe("NoteEditorScreen persistence", () => {
       screen.getByRole("button", { name: "Keep rich version" }),
     ).toBeVisible();
   });
+
+  it("reopens a saved Markdown recovery draft and persists source edits", async () => {
+    vi.useFakeTimers();
+    const note = createPrivateNote(
+      "user-a",
+      "2026-07-22T03:00:00.000Z",
+      "note-a",
+    );
+    note.markdownDraft = "# 복구할 초안";
+    const onSave = vi.fn(() => Promise.resolve());
+    render(
+      <NoteEditorScreen
+        note={note}
+        now={() => "2026-07-22T03:00:00.000Z"}
+        onSave={onSave}
+        onClose={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
+    const source = screen.getByRole("textbox", { name: "Markdown source" });
+    expect(source).toHaveValue("# 복구할 초안");
+    fireEvent.change(source, { target: { value: "# 수정한 초안" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ markdownDraft: "# 수정한 초안" }),
+    );
+  });
+
+  it("keeps the note document intact when a non-image file is rejected", async () => {
+    const onSave = vi.fn(() => Promise.resolve());
+    render(
+      <NoteEditorScreen
+        note={createPrivateNote("user-a", "2026-07-22T03:00:00.000Z", "note-a")}
+        now={() => "2026-07-22T03:00:00.000Z"}
+        onSave={onSave}
+        onClose={() => undefined}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("이미지 파일"), {
+      target: {
+        files: [new File(["text"], "memo.txt", { type: "text/plain" })],
+      },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "현재 노트 내용은 변경되지 않았습니다",
+    );
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("offers table operations after inserting a rich table", () => {
+    render(
+      <NoteEditorScreen
+        note={createPrivateNote("user-a", "2026-07-22T03:00:00.000Z", "note-a")}
+        now={() => "2026-07-22T03:00:00.000Z"}
+        onSave={() => Promise.resolve()}
+        onClose={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    expect(screen.getByRole("button", { name: "Add column" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Merge or split" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Delete table" })).toBeVisible();
+  });
 });

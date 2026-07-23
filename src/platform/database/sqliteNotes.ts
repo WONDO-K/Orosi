@@ -17,6 +17,8 @@ interface NoteRow extends Record<string, unknown> {
   document_json: string;
   derived_text: string;
   tags_json: string;
+  markdown_draft: string | null;
+  assets_json: string;
   created_at: string;
   updated_at: string;
   base_revision: number;
@@ -33,6 +35,8 @@ function fromRow(row: NoteRow): PrivateNote {
     document: JSON.parse(row.document_json) as NoteDocument,
     derivedText: row.derived_text,
     tags: JSON.parse(row.tags_json) as string[],
+    markdownDraft: row.markdown_draft ?? null,
+    assets: JSON.parse(row.assets_json ?? "[]") as PrivateNote["assets"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     baseRevision: row.base_revision,
@@ -76,14 +80,16 @@ export class SqliteNoteRepository implements PrivateNoteRepository {
     assertOwned(this, note);
     await this.driver.run(
       `INSERT INTO notes (
-        id, owner_id, title, document_json, derived_text, tags_json, created_at,
+        id, owner_id, title, document_json, derived_text, tags_json, markdown_draft, assets_json, created_at,
         updated_at, base_revision, sync_state, deleted_at, purge_after
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         document_json = excluded.document_json,
         derived_text = excluded.derived_text,
         tags_json = excluded.tags_json,
+        markdown_draft = excluded.markdown_draft,
+        assets_json = excluded.assets_json,
         updated_at = excluded.updated_at,
         base_revision = excluded.base_revision,
         sync_state = excluded.sync_state,
@@ -97,6 +103,8 @@ export class SqliteNoteRepository implements PrivateNoteRepository {
         JSON.stringify(note.document),
         note.derivedText,
         JSON.stringify(note.tags),
+        note.markdownDraft,
+        JSON.stringify(note.assets),
         note.createdAt,
         note.updatedAt,
         note.baseRevision,

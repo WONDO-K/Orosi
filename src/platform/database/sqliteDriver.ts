@@ -5,6 +5,8 @@ import {
 } from "@capacitor-community/sqlite";
 import type { LocalDatabaseFactory } from "./databaseFactory";
 import migration001 from "./migrations/001_notes.sql?raw";
+import migration002 from "./migrations/002_markdown_draft.sql?raw";
+import migration003 from "./migrations/003_note_assets.sql?raw";
 import { SqliteNoteRepository } from "./sqliteNotes";
 
 export interface SqlDriver {
@@ -338,7 +340,13 @@ export class CapacitorSqliteDatabaseFactory implements LocalDatabaseFactory {
       ownsConnection = true;
       await connection.open();
       const driver = new CapacitorSqlDriver(connection, this.sqlite, name);
-      await driver.execute(migration001);
+      const versions = await driver.query<{ user_version: number }>(
+        "PRAGMA user_version",
+      );
+      const version = versions[0]?.user_version ?? 0;
+      if (version < 1) await driver.execute(migration001);
+      if (version < 2) await driver.execute(migration002);
+      if (version < 3) await driver.execute(migration003);
       const shared = { driver, leases: 0 };
       lifecycle.connection = shared;
       return shared;

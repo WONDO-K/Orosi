@@ -14,6 +14,7 @@ import UniqueID from "@tiptap/extension-unique-id";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { privateAssetStore } from "./asset";
 import { editPrivateNote, type NoteDocument, type PrivateNote } from "./note";
 
 type SaveState = "saved" | "saving" | "error";
@@ -33,7 +34,9 @@ export function NoteEditorScreen({
   const [tagsInput, setTagsInput] = useState(note.tags.join(", "));
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [sourceMode, setSourceMode] = useState(false);
-  const [markdownDraft, setMarkdownDraft] = useState("");
+  const [markdownDraft, setMarkdownDraft] = useState(note.markdownDraft ?? "");
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveChain = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -44,10 +47,14 @@ export function NoteEditorScreen({
     title: string;
     document: NoteDocument;
     tags: string[];
+    markdownDraft: string | null;
+    assets: PrivateNote["assets"];
   }>({
     title: note.title,
     document: note.document,
     tags: note.tags,
+    markdownDraft: note.markdownDraft,
+    assets: note.assets,
   });
 
   function setCurrentSaveState(next: SaveState) {
@@ -73,7 +80,15 @@ export function NoteEditorScreen({
       TableHeader,
       TableCell,
       UniqueID.configure({
-        types: ["paragraph", "heading", "bulletList", "orderedList", "table"],
+        types: [
+          "paragraph",
+          "heading",
+          "bulletList",
+          "orderedList",
+          "taskList",
+          "table",
+          "tableRow",
+        ],
       }),
       Markdown,
     ],
@@ -122,9 +137,49 @@ export function NoteEditorScreen({
 
   function enterSourceMode() {
     if (!editor) return;
-    setMarkdownDraft(editor.getMarkdown());
+    const draft = note.markdownDraft ?? editor.getMarkdown();
+    setMarkdownDraft(draft);
+    latest.current.markdownDraft = draft;
+    draftVersion.current += 1;
+    scheduleSave();
     setSourceError(null);
     setSourceMode(true);
+  }
+
+  async function addImage(file: File | undefined) {
+    if (!file || !editor) return;
+    setAssetError(null);
+    try {
+      const asset = await privateAssetStore().copy({
+        ownerId: note.ownerId,
+        noteId: note.id,
+        file,
+        id: crypto.randomUUID(),
+        now: now(),
+      });
+      latest.current.assets = [
+        ...latest.current.assets,
+        {
+          id: asset.id,
+          uri: asset.uri,
+          mimeType: asset.mimeType,
+          byteSize: asset.byteSize,
+          sha256: asset.sha256,
+          width: asset.width,
+          height: asset.height,
+          createdAt: asset.createdAt,
+        },
+      ];
+      editor.chain().focus().setImage({ src: asset.uri, alt: file.name }).run();
+      draftVersion.current += 1;
+      scheduleSave();
+    } catch {
+      setAssetError(
+        "이미지를 저장하지 못했습니다. 현재 노트 내용은 변경되지 않았습니다.",
+      );
+    } finally {
+      if (imageInput.current) imageInput.current.value = "";
+    }
   }
 
   function applyMarkdown() {
@@ -132,6 +187,7 @@ export function NoteEditorScreen({
     try {
       editor.commands.setContent(markdownDraft, { contentType: "markdown" });
       latest.current.document = editor.getJSON() as NoteDocument;
+      latest.current.markdownDraft = null;
       draftVersion.current += 1;
       scheduleSave();
       setSourceError(null);
@@ -141,6 +197,19 @@ export function NoteEditorScreen({
         "Markdown could not be applied. Your draft is still safe here.",
       );
     }
+  }
+
+  function exportMarkdown() {
+    if (!editor) return;
+    const blob = new Blob([editor.getMarkdown()], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${title.trim() || "orosi-note"}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   useEffect(() => {
@@ -223,6 +292,11 @@ export function NoteEditorScreen({
             Tasks
           </button>
           <button
+            onClick={() => editor.chain().focus().setColor("#bf5f4b").run()}
+          >
+            Color
+          </button>
+          <button
             onClick={() =>
               editor
                 .chain()
@@ -233,13 +307,34 @@ export function NoteEditorScreen({
           >
             Table
           </button>
+          <button
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
+                .run()
+            }
+          >
+            2 × 2
+          </button>
           <button onClick={() => editor.chain().focus().undo().run()}>
             Undo
           </button>
           <button onClick={() => editor.chain().focus().redo().run()}>
             Redo
           </button>
+          <button onClick={() => imageInput.current?.click()}>Image</button>
+          <input
+            ref={imageInput}
+            type="file"
+            accept="image/*"
+            hidden
+            aria-label="이미지 파일"
+            onChange={(event) => void addImage(event.target.files?.[0])}
+          />
           <button onClick={enterSourceMode}>Markdown</button>
+          <button onClick={exportMarkdown}>Export</button>
         </div>
       )}
       {!sourceMode && editor?.isActive("table") && (
@@ -247,8 +342,16 @@ export function NoteEditorScreen({
           <button onClick={() => editor.chain().focus().addColumnAfter().run()}>
             Add column
           </button>
+          <button
+            onClick={() => editor.chain().focus().addColumnBefore().run()}
+          >
+            Add column before
+          </button>
           <button onClick={() => editor.chain().focus().addRowAfter().run()}>
             Add row
+          </button>
+          <button onClick={() => editor.chain().focus().addRowBefore().run()}>
+            Add row before
           </button>
           <button onClick={() => editor.chain().focus().deleteColumn().run()}>
             Delete column
@@ -264,6 +367,9 @@ export function NoteEditorScreen({
           >
             Header row
           </button>
+          <button onClick={() => editor.chain().focus().deleteTable().run()}>
+            Delete table
+          </button>
         </div>
       )}
       {sourceMode ? (
@@ -272,7 +378,13 @@ export function NoteEditorScreen({
           <textarea
             id="markdown-source"
             value={markdownDraft}
-            onChange={(event) => setMarkdownDraft(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setMarkdownDraft(next);
+              latest.current.markdownDraft = next;
+              draftVersion.current += 1;
+              scheduleSave();
+            }}
           />
           {sourceError && <p role="alert">{sourceError}</p>}
           <button onClick={applyMarkdown}>Apply Markdown</button>
@@ -290,6 +402,11 @@ export function NoteEditorScreen({
           </p>
           <button onClick={() => void persist()}>Retry save</button>
         </div>
+      )}
+      {assetError && (
+        <p className="save-error" role="alert">
+          {assetError}
+        </p>
       )}
     </section>
   );

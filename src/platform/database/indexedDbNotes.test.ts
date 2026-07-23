@@ -25,6 +25,61 @@ describe("IndexedDbDatabaseFactory", () => {
     await other.close();
   });
 
+  it("keeps recovery Markdown and assets after an editor restart", async () => {
+    const repository = await factory.open(owners[0]);
+    const note = createPrivateNote(
+      owners[0],
+      "2026-07-22T03:00:00.000Z",
+      "recovery-note",
+    );
+    note.markdownDraft = "| 앞면 | 뒷면 |\n| --- | --- |\n| 질문 | 답 |";
+    note.assets = [
+      {
+        id: "asset-a",
+        uri: "data:image/png;base64,AA==",
+        mimeType: "image/png",
+        byteSize: 1,
+        sha256: "a".repeat(64),
+        width: 1,
+        height: 1,
+        createdAt: "2026-07-22T03:00:00.000Z",
+      },
+    ];
+    await repository.put(note);
+    await repository.close();
+
+    const reopened = await factory.open(owners[0]);
+    expect(await reopened.get("recovery-note")).toMatchObject({
+      markdownDraft: note.markdownDraft,
+      assets: note.assets,
+    });
+    await reopened.close();
+  });
+
+  it("searches a 1,000-note private library by title, text, and tag", async () => {
+    const repository = await factory.open(owners[0]);
+    await Promise.all(
+      Array.from({ length: 1000 }, (_, index) => {
+        const note = createPrivateNote(
+          owners[0],
+          `2026-07-22T03:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          `fixture-${index}`,
+        );
+        note.title = index === 512 ? "찾을 제목" : `노트 ${index}`;
+        note.derivedText = index === 513 ? "찾을 본문" : "일반 본문";
+        note.tags = index === 514 ? ["찾을태그"] : ["fixture"];
+        return repository.put(note);
+      }),
+    );
+
+    expect(
+      (await repository.list("active", "찾을")).map((note) => note.id),
+    ).toEqual(
+      expect.arrayContaining(["fixture-512", "fixture-513", "fixture-514"]),
+    );
+    await repository.close();
+  });
+
   it("separates active and trash lists and purges only expired notes", async () => {
     const repository = await factory.open(owners[0]);
     const active = createPrivateNote(

@@ -199,6 +199,43 @@ a {
   font-size: 1.35rem;
   font-weight: 700;
 }
+.note-tags-input,
+.markdown-source textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #c9c5bd;
+  border-radius: 12px;
+  background: #fffdf8;
+  color: var(--ink);
+  font: inherit;
+}
+.editor-toolbar,
+.table-toolbar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.editor-toolbar button,
+.table-toolbar button {
+  flex: 0 0 auto;
+  border: 1px solid #c9c5bd;
+  border-radius: 10px;
+  background: #fffdf8;
+  color: var(--ink);
+}
+.markdown-source {
+  display: grid;
+  min-height: 0;
+  gap: 10px;
+}
+.markdown-source textarea {
+  min-height: 50vh;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
 .basic-editor {
   min-height: 0;
   overflow: auto;
@@ -210,6 +247,24 @@ a {
 .basic-editor .tiptap {
   min-height: 50vh;
   outline: none;
+}
+.basic-editor .tiptap table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.basic-editor .tiptap th,
+.basic-editor .tiptap td {
+  min-width: 96px;
+  padding: 8px;
+  border: 1px solid #c9c5bd;
+  vertical-align: top;
+}
+.basic-editor .tiptap img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
 }
 .save-error {
   padding: 12px;
