@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/app/App";
 import { attachOAuthCallback, createRuntimeDependencies } from "@/app/runtime";
+import { createE2eDependencies } from "@/app/e2eRuntime";
 import "@/app/styles.css";
 
 const rootElement = document.getElementById("root");
@@ -9,8 +10,12 @@ if (!rootElement) throw new Error("Orosi root element is missing");
 const root = createRoot(rootElement);
 
 try {
-  const dependencies = createRuntimeDependencies();
-  void attachOAuthCallback(dependencies);
+  const dependencies =
+    import.meta.env.VITE_E2E === "true"
+      ? createE2eDependencies()
+      : createRuntimeDependencies();
+  if (import.meta.env.VITE_E2E !== "true")
+    void attachOAuthCallback(dependencies);
   root.render(
     <StrictMode>
       <App dependencies={dependencies} />

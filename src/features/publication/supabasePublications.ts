@@ -131,14 +131,12 @@ export class SupabasePublicDiscovery implements PublicDiscovery {
     category: ReportCategory,
   ): Promise<void> {
     const reporterId = (await this.client.auth.getUser()).data.user?.id;
-    const { error } = await this.client
-      .from("content_reports")
-      .insert({
-        reporter_id: reporterId,
-        publication_id: publicationId,
-        reported_author_id: authorId,
-        category,
-      });
+    const { error } = await this.client.from("content_reports").insert({
+      reporter_id: reporterId,
+      publication_id: publicationId,
+      reported_author_id: authorId,
+      category,
+    });
     if (error) throw error;
   }
 }
