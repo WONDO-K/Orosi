@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createPrivateNote, type PrivateNote } from "./note";
 import { NoteEditorScreen } from "./NoteEditorScreen";
+import { spreadsheetTableFromText } from "./spreadsheetTable";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -178,5 +179,19 @@ describe("NoteEditorScreen persistence", () => {
       screen.getByRole("button", { name: "Merge or split" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Delete table" })).toBeVisible();
+  });
+
+  it("converts rectangular spreadsheet text to a table and leaves invalid text alone", () => {
+    const table = spreadsheetTableFromText("질문\t답\n앞면\t뒷면");
+    expect(table?.content?.[0]?.type).toBe("table");
+    expect(table?.content?.[0]?.content).toHaveLength(2);
+    expect(table?.content?.[0]?.content?.[0]?.content?.[0]?.type).toBe(
+      "tableHeader",
+    );
+    expect(table?.content?.[0]?.content?.[1]?.content?.[0]?.type).toBe(
+      "tableCell",
+    );
+    expect(spreadsheetTableFromText("하나\t둘\n셋")).toBeNull();
+    expect(spreadsheetTableFromText("일반 문장")).toBeNull();
   });
 });

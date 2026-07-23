@@ -16,6 +16,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { privateAssetStore } from "./asset";
 import { editPrivateNote, type NoteDocument, type PrivateNote } from "./note";
+import { spreadsheetTableFromText } from "./spreadsheetTable";
 
 type SaveState = "saved" | "saving" | "error";
 
@@ -94,6 +95,15 @@ export function NoteEditorScreen({
     ],
     content: note.document,
     editorProps: {
+      handlePaste(view, event) {
+        const table = spreadsheetTableFromText(
+          event.clipboardData?.getData("text/plain") ?? "",
+        );
+        if (!table) return false;
+        const node = view.state.schema.nodeFromJSON(table.content?.[0]);
+        view.dispatch(view.state.tr.replaceSelectionWith(node));
+        return true;
+      },
       attributes: { "aria-label": "노트 내용", role: "textbox" },
     },
     onUpdate: ({ editor: current }) => {
