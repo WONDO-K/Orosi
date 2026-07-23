@@ -21,6 +21,8 @@ npm run android:release
 
 The E2E run on 2026-07-23 passed: `creates, saves, searches, and opens a private note with keyboard-accessible controls`.
 
+The Android unsigned release bundle also passed on 2026-07-23 with JDK 21 and `ANDROID_HOME` set. The artifact is at `android/app/build/outputs/bundle/release/app-release.aab`; it is not store-uploadable until a Play upload key and Play App Signing are configured.
+
 ## Remaining external release gates
 
 - Apply `supabase/migrations` to a real Supabase project and perform two-user RLS smoke tests.
