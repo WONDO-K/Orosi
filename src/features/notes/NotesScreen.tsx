@@ -8,17 +8,20 @@ import {
 } from "./note";
 import type { NoteList, PrivateNoteRepository } from "./noteRepository";
 import { NoteEditorScreen } from "./NoteEditorScreen";
+import type { PrivateSyncService } from "@/features/sync/privateSync";
 
 export function NotesScreen({
   ownerId,
   databases,
   now,
   newId,
+  sync,
 }: {
   ownerId: string;
   databases: LocalDatabaseFactory;
   now: () => string;
   newId: () => string;
+  sync?: PrivateSyncService;
 }) {
   const [repository, setRepository] = useState<PrivateNoteRepository | null>(
     null,
@@ -27,6 +30,8 @@ export function NotesScreen({
   const [location, setLocation] = useState<NoteList>("active");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<PrivateNote | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const refresh = useCallback(
     async (repo: PrivateNoteRepository, list = location, search = query) => {
@@ -55,6 +60,22 @@ export function NotesScreen({
       if (current) void current.close();
     };
   }, [databases, now, ownerId]);
+
+  useEffect(() => {
+    if (!repository || !sync) return;
+    const run = () =>
+      void sync.sync(repository).then(() => refresh(repository));
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") run();
+    };
+    run();
+    window.addEventListener("online", run);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", run);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [refresh, repository, sync]);
 
   async function create() {
     if (!repository) return;
@@ -102,6 +123,24 @@ export function NotesScreen({
     if (repository) await refresh(repository, location, next);
   }
 
+  async function synchronize() {
+    if (!repository || !sync || syncing) return;
+    setSyncing(true);
+    try {
+      const report = await sync.sync(repository);
+      await refresh(repository);
+      setSyncMessage(
+        report.conflicts.length
+          ? `동기화 충돌 ${report.conflicts.length}건: 충돌 사본을 만들었습니다.`
+          : report.failed
+            ? `동기화 실패 ${report.failed}건: 기기에 보관하고 다시 시도합니다.`
+            : `${report.pushed}개 노트를 동기화했습니다.`,
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (selected) {
     return (
       <NoteEditorScreen
@@ -125,7 +164,14 @@ export function NotesScreen({
             새 노트
           </button>
         )}
+        <button
+          onClick={() => void synchronize()}
+          disabled={!repository || !sync || syncing}
+        >
+          {syncing ? "동기화 중" : "동기화"}
+        </button>
       </div>
+      {syncMessage && <p role="status">{syncMessage}</p>}
       <div className="notes-filters">
         <button
           aria-pressed={location === "active"}

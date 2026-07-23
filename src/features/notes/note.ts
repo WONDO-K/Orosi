@@ -122,3 +122,20 @@ export function restoreFromTrash(note: PrivateNote, now: string): PrivateNote {
     syncState: "pending",
   };
 }
+
+export function createConflictCopy(
+  note: PrivateNote,
+  now: string,
+  id: string = crypto.randomUUID(),
+): PrivateNote {
+  const stamp = now.replace("T", " ").slice(0, 16);
+  return {
+    ...structuredClone(note),
+    id,
+    title: `${note.title} (Conflict copy ${stamp})`,
+    baseRevision: 0,
+    syncState: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+}

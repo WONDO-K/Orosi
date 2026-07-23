@@ -3,17 +3,26 @@ import { Capacitor } from "@capacitor/core";
 import { createSupabaseAuthRepository } from "@/features/auth/supabaseAuth";
 import { IndexedDbDatabaseFactory } from "@/platform/database/indexedDbNotes";
 import { CapacitorSqliteDatabaseFactory } from "@/platform/database/sqliteDriver";
+import { PrivateSyncService } from "@/features/sync/privateSync";
+import { createSupabasePrivateSyncRemote } from "@/features/sync/supabasePrivateSync";
 import type { AppDependencies, PlatformKind } from "./dependencies";
 
 export function createRuntimeDependencies(): AppDependencies {
+  const now = () => new Date().toISOString();
+  const newId = () => crypto.randomUUID();
   return {
     auth: createSupabaseAuthRepository(import.meta.env),
     databases: Capacitor.isNativePlatform()
       ? new CapacitorSqliteDatabaseFactory()
       : new IndexedDbDatabaseFactory(),
+    sync: new PrivateSyncService(
+      createSupabasePrivateSyncRemote(import.meta.env),
+      newId,
+      now,
+    ),
     platform: Capacitor.getPlatform() as PlatformKind,
-    now: () => new Date().toISOString(),
-    newId: () => crypto.randomUUID(),
+    now,
+    newId,
   };
 }
 
