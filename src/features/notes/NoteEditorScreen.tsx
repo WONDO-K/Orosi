@@ -30,6 +30,7 @@ export function NoteEditorScreen({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(note.title);
+  const [tagsInput, setTagsInput] = useState(note.tags.join(", "));
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [sourceMode, setSourceMode] = useState(false);
   const [markdownDraft, setMarkdownDraft] = useState("");
@@ -39,9 +40,14 @@ export function NoteEditorScreen({
   const saveAttempt = useRef(0);
   const draftVersion = useRef(0);
   const mounted = useRef(true);
-  const latest = useRef<{ title: string; document: NoteDocument }>({
+  const latest = useRef<{
+    title: string;
+    document: NoteDocument;
+    tags: string[];
+  }>({
     title: note.title,
     document: note.document,
+    tags: note.tags,
   });
 
   function setCurrentSaveState(next: SaveState) {
@@ -166,6 +172,24 @@ export function NoteEditorScreen({
         onChange={(event) => {
           setTitle(event.target.value);
           latest.current.title = event.target.value;
+          draftVersion.current += 1;
+          scheduleSave();
+        }}
+      />
+      <input
+        aria-label="노트 태그"
+        className="note-tags-input"
+        placeholder="태그를 쉼표로 구분"
+        value={tagsInput}
+        onChange={(event) => {
+          const next = event.target.value;
+          setTagsInput(next);
+          latest.current.tags = [...new Set(
+            next
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+          )];
           draftVersion.current += 1;
           scheduleSave();
         }}

@@ -58,7 +58,12 @@ export function derivePlainText(node: JSONContent): string {
 
 export function editPrivateNote(
   note: PrivateNote,
-  change: { title: string; document: NoteDocument; now: string },
+  change: {
+    title: string;
+    document: NoteDocument;
+    tags?: string[];
+    now: string;
+  },
 ): PrivateNote {
   if (note.deletedAt) throw new Error("Restore a trashed note before editing");
 
@@ -66,6 +71,7 @@ export function editPrivateNote(
     ...note,
     title: change.title.trim() || "제목 없는 노트",
     document: structuredClone(change.document),
+    tags: change.tags ? [...new Set(change.tags)] : note.tags,
     derivedText: derivePlainText(change.document),
     updatedAt: change.now,
     syncState: "pending",

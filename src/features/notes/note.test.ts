@@ -55,4 +55,16 @@ describe("private note lifecycle", () => {
     expect(restored.deletedAt).toBeNull();
     expect(restored.purgeAfter).toBeNull();
   });
+
+  it("keeps distinct edited tags with the local note", () => {
+    const note = createPrivateNote("user-a", NOW, "note-a");
+    const edited = editPrivateNote(note, {
+      title: "Tags",
+      document: note.document,
+      tags: ["biology", "biology", "exam"],
+      now: "2026-07-22T03:01:00.000Z",
+    });
+
+    expect(edited.tags).toEqual(["biology", "exam"]);
+  });
 });
