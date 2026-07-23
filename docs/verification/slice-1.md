@@ -20,7 +20,7 @@ Date: 2026-07-23
 - Android backup and device-transfer exclusions, plus the `orosi://auth/callback` Android and iOS registrations, were verified in the generated native projects.
 - iOS was generated and synchronized on Windows; an iOS compilation is intentionally not claimed.
 - Capacitor 8.4.2 generates minSdk 24 and compileSdk/targetSdk 36. These generated supported values replace the earlier pre-generation assumption of minSdk 23 and SDK 35.
-- GitHub Actions execution remains an external gate until the branch is pushed and a pull request is opened.
+- GitHub Actions run `29971703463` passed on 2026-07-23: both the `web` quality gate and the `android-debug` APK job succeeded.
 
 ## Evidence required before marking the slice complete
 
