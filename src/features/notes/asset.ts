@@ -46,7 +46,8 @@ export class BrowserPrivateAssetStore implements PrivateAssetStore {
 function fileToDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("Could not copy image"));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Could not copy image"));
     reader.onload = () => {
       if (typeof reader.result !== "string") {
         reject(new Error("Could not copy image"));

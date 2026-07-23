@@ -184,12 +184,14 @@ export function NoteEditorScreen({
         onChange={(event) => {
           const next = event.target.value;
           setTagsInput(next);
-          latest.current.tags = [...new Set(
-            next
-              .split(",")
-              .map((tag) => tag.trim())
-              .filter(Boolean),
-          )];
+          latest.current.tags = [
+            ...new Set(
+              next
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            ),
+          ];
           draftVersion.current += 1;
           scheduleSave();
         }}
